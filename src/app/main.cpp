@@ -21,6 +21,7 @@
  */
 
 #include <csignal>
+#include <cstdlib>
 
 #include <QApplication>
 #include <QStyleHints>
@@ -34,6 +35,7 @@
 
 #include "appfactory.h"
 #include "collab/ploqapp.h" // COLLAB: Ploq identity + first launch
+#include "collab/ploqcrashreport.h" // COLLAB: Ploq: "Ploq closed unexpectedly" on the next start
 #include "internal/commandlineparser.h"
 #include "global/iapplication.h"
 
@@ -63,44 +65,78 @@ static void crashCallback(int signum)
 
 #endif
 
-// COLLAB: Ploq dev/QA only: COLLAB_CRASH_DUMP=<folder> writes a minidump there on a
-// crash instead of the one-line "Oops" log, so a crash in a QA run has a stack.
-// COLLAB: a dump holds process memory, which can include the Ploq sign-in token: don't share dumps.
+// COLLAB: Ploq: a crash writes a minidump instead of only the one-line "Oops" log, so a crash
+// has a stack. Real users: %LOCALAPPDATA%\Ploq\crashes (same path as ploq::crashDumpFolder()),
+// stacks and thread info only (no heap, so no score or sign-in token sitting in memory); the
+// next start offers to open the folder (src/collab/ploqcrashreport.cpp). Nothing is uploaded.
+// QA: COLLAB_CRASH_DUMP=<folder> writes there, with the memory stacks point at (richer, but it
+// can include the test account's sign-in token: keep those dumps on this PC).
+// Reading a dump needs the release's Ploq.pdb (builds\symbols\<version>, see build_installer.ps1).
 #if defined(Q_OS_WIN) && !defined(MUSE_MODULE_DIAGNOSTICS_CRASHPAD_CLIENT)
 #include <windows.h>
 #include <dbghelp.h>
 static wchar_t s_crashDumpDir[MAX_PATH] = { 0 };
-static LONG WINAPI ploqWriteCrashDump(EXCEPTION_POINTERS* ep)
+static bool s_fullCrashDump = false;
+static void ploqWriteDumpFile(EXCEPTION_POINTERS* ep)
 {
     using MiniDumpWriteDumpFn = BOOL(WINAPI*)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE, PMINIDUMP_EXCEPTION_INFORMATION,
                                                PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
     HMODULE dbghelp = LoadLibraryExW(L"dbghelp.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32); // COLLAB: System32 only, never the app folder
     auto writeDump = dbghelp ? reinterpret_cast<MiniDumpWriteDumpFn>(GetProcAddress(dbghelp, "MiniDumpWriteDump")) : nullptr;
-    if (writeDump) {
-        wchar_t path[MAX_PATH];
-        swprintf_s(path, L"%s\\Ploq-%lu-%llu.dmp", s_crashDumpDir, GetCurrentProcessId(),
-                   static_cast<unsigned long long>(GetTickCount64()));
-        HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (f != INVALID_HANDLE_VALUE) {
-            MINIDUMP_EXCEPTION_INFORMATION info { GetCurrentThreadId(), ep, FALSE };
-            writeDump(GetCurrentProcess(), GetCurrentProcessId(), f,
-                      static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithThreadInfo),
-                      &info, nullptr, nullptr);
-            CloseHandle(f);
-        }
+    if (!writeDump) {
+        return;
     }
+    wchar_t path[MAX_PATH];
+    swprintf_s(path, L"%s\\Ploq-%lu-%llu.dmp", s_crashDumpDir, GetCurrentProcessId(),
+               static_cast<unsigned long long>(GetTickCount64()));
+    HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    const MINIDUMP_TYPE type = s_fullCrashDump
+                               ? static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithThreadInfo)
+                               : static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithThreadInfo);
+    MINIDUMP_EXCEPTION_INFORMATION info { GetCurrentThreadId(), ep, FALSE };
+    writeDump(GetCurrentProcess(), GetCurrentProcessId(), f, type, ep ? &info : nullptr, nullptr, nullptr);
+    CloseHandle(f);
+}
+
+static LONG WINAPI ploqWriteCrashDump(EXCEPTION_POINTERS* ep)
+{
+    ploqWriteDumpFile(ep);
     LOGE() << "Oops! Application crashed (exception code " << static_cast<unsigned long>(ep->ExceptionRecord->ExceptionCode)
-           << "); minidump written to COLLAB_CRASH_DUMP";
+           << "); minidump written to the crash folder";
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+//! abort() (std::terminate, a failed check that aborts) never reaches the exception filter.
+static void ploqAbortDump(int)
+{
+    ploqWriteDumpFile(nullptr); // no exception record: the dump has this thread's stack, abort() on top
+    LOGE() << "Oops! Application aborted; minidump written to the crash folder";
+    _exit(3);
 }
 
 static bool ploqInstallCrashDump()
 {
     const DWORD n = GetEnvironmentVariableW(L"COLLAB_CRASH_DUMP", s_crashDumpDir, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) {
-        return false;
+    if (n > 0 && n < MAX_PATH) {
+        s_fullCrashDump = true;
+    } else {
+        wchar_t base[MAX_PATH];
+        const DWORD m = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
+        if (m == 0 || m >= MAX_PATH - 32) {
+            return false;
+        }
+        swprintf_s(s_crashDumpDir, L"%s\\Ploq", base);
+        CreateDirectoryW(s_crashDumpDir, nullptr); // exists already after the first run
+        swprintf_s(s_crashDumpDir, L"%s\\Ploq\\crashes", base);
+        if (!CreateDirectoryW(s_crashDumpDir, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
+            return false;
+        }
     }
     SetUnhandledExceptionFilter(ploqWriteCrashDump);
+    signal(SIGABRT, ploqAbortDump);
     return true;
 }
 
@@ -149,6 +185,24 @@ static void ploqQaGrabIfAsked(QObject* ctx)
         if (done.open(QIODevice::WriteOnly)) {
             done.write(saved.join(QChar(u'\n')).toUtf8());
         }
+    });
+}
+
+// COLLAB: Ploq dev/QA only: PLOQ_QA_CRASH=segv|abort crashes on purpose 3 s after start, to test
+// the crash dump and the next start's "Ploq closed unexpectedly".
+static void ploqQaCrashIfAsked(QObject* ctx)
+{
+    const QString how = qEnvironmentVariable("PLOQ_QA_CRASH");
+    if (how != "segv" && how != "abort") {
+        return;
+    }
+    QTimer::singleShot(3000, ctx, [how]() {
+        LOGW() << "ploq: crashing on purpose (PLOQ_QA_CRASH=" << how << ")";
+        if (how == "abort") {
+            std::abort();
+        }
+        volatile int* p = nullptr;
+        *p = 42;
     });
 }
 
@@ -383,6 +437,12 @@ int main(int argc, char** argv)
     // ====================================================
 #ifdef MUSE_APP_UNSTABLE
     ploqQaGrabIfAsked(qapp); // COLLAB: Ploq
+    ploqQaCrashIfAsked(qapp); // COLLAB: Ploq
+#endif
+#if defined(Q_OS_WIN) && !defined(MUSE_MODULE_DIAGNOSTICS_CRASHPAD_CLIENT)
+    if (opt.runMode == IApplication::RunMode::GuiApp) {
+        mu::collab::ploq::offerCrashReportIfAny(qapp); // COLLAB: Ploq
+    }
 #endif
 
     int code = qapp->exec();

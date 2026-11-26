@@ -31,6 +31,8 @@ target_sources(collab PRIVATE
 
     ploqapp.cpp
     ploqapp.h
+    ploqcrashreport.cpp
+    ploqcrashreport.h
     ploqimport.cpp
     ploqimport.h
     ploqnetguard.cpp

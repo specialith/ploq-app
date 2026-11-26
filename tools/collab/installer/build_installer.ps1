@@ -42,6 +42,20 @@ Copy-Item "$root\LICENSE.txt" "$stage\LICENSE.txt"
 Copy-Item "$PSScriptRoot\THIRD_PARTY_NOTICES.txt" "$stage\THIRD_PARTY_NOTICES.txt"
 Copy-Item "$root\src\collab\fonts\Inter-LICENSE.txt" "$stage\Inter-LICENSE.txt"
 
+# Keep this release's symbols: a user's crash dump (%LOCALAPPDATA%\Ploq\crashes) only shows a
+# readable stack with the exact Ploq.pdb + Ploq.exe of their version, and the next build
+# overwrites both. Open a dump in WinDbg / Visual Studio with builds\symbols\<version> as the
+# symbol and image path.
+$pdb = Join-Path (Split-Path $InstallDir -Parent) "Ploq.pdb"
+$symbols = "$root\builds\symbols\$version"
+if (Test-Path $pdb) {
+    New-Item -ItemType Directory -Force $symbols | Out-Null
+    Copy-Item $pdb, "$InstallDir\bin\Ploq.exe" $symbols -Force
+    Write-Host "    symbols kept in $symbols"
+} else {
+    Write-Warning "No Ploq.pdb next to ${InstallDir}: crash dumps from $version won't have a readable stack"
+}
+
 Write-Host "2/5 Code signing the program files..."
 & "$PSScriptRoot\sign.ps1" -Files (Get-ChildItem $stage -Recurse -Include *.exe, *.dll).FullName
 
