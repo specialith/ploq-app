@@ -48,6 +48,7 @@ class AboutModel : public QObject, public muse::Contextable
 public:
     explicit AboutModel(QObject* parent = nullptr);
 
+    Q_INVOKABLE QString ploqVersion() const; // COLLAB: Ploq's own version
     Q_INVOKABLE QString museScoreVersion() const;
     Q_INVOKABLE QString museScoreRevision() const;
     Q_INVOKABLE QVariantMap museScoreUrl() const;

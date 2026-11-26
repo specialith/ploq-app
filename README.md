@@ -1,90 +1,66 @@
-# ![MuseScore Studio](share/icons/musescore_logo_full.png)
+# Ploq
 
-Music notation and composition software
+**Real-time collaboration for MuseScore.** Open a score in Ploq, press **Share**, and send the
+link. Everyone in the score sees each other's edits, cursors and selections live.
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Coverage](https://s3.us-east-1.amazonaws.com/extensions.musescore.org/test/code_coverage/coverage_badge.svg?)](https://github.com/musescore/MuseScore/actions/workflows/check_unit_tests.yml)
+**[Download Ploq for Windows](https://ploq.app/download)** · [ploq.app](https://ploq.app)
 
-MuseScore Studio is an open source and free music notation software. For support, contribution, and bug reports visit MuseScore.org. Fork and make pull requests!
+Ploq is a fork of [MuseScore Studio](https://github.com/musescore/MuseScore) 4.7.7 with a
+collaboration module added. It is not affiliated with or endorsed by Muse Group.
 
-## Features
+## What's here
 
-- WYSIWYG design, notes are entered on a "virtual notepaper"
-- TrueType font(s) for printing & display allows for high quality scaling to all sizes
-- Easy & fast note entry
-- Many editing functions
-- MusicXML import/export
-- MIDI (SMF) import/export
-- MEI import/export
-- MuseData import
-- MIDI input for note entry
-- Integrated sequencer and software synthesizer to play the score
-- Print or create PDF files
+- `src/collab/`: the collaboration module (sharing, sign-in, live sync, updates). Upstream
+  MuseScore files are only touched by small hooks marked `COLLAB:`.
+- `docs/collab/`: how it works: `ARCHITECTURE_NOTES.md`, the sync `PROTOCOL.md`, and
+  `UPSTREAM.md` (what changed in MuseScore's own files).
+- `tools/collab/`: the Windows build wrapper, the installer and update tools.
 
-## More info
+The server Ploq connects to is **[ploq-server](https://github.com/specialith/ploq-server)**, a
+Cloudflare Worker. ploq.app runs one for everyone, and you can run your own.
 
-- [MuseScore Homepage](https://musescore.org)
-- [MuseScore Git workflow instructions](https://musescore.org/en/developers-handbook/git-workflow)
-- [How to compile MuseScore?](https://github.com/musescore/MuseScore/wiki/Set-up-developer-environment)
+## Build it (Windows)
+
+You need Visual Studio 2022 with C++ desktop development, [Qt 6.10.2](https://www.qt.io/download-qt-installer-oss)
+(MSVC 2022 64-bit), CMake and Ninja. Then create `build_overrides.cmake` in the repo root (it's
+ignored by git) with your Qt path:
+
+```cmake
+set(ENV{QTDIR} "C:/Qt/6.10.2/msvc2022_64")
+list(APPEND CONFIGURE_ARGS -G Ninja)
+```
+
+and build:
+
+```
+tools\collab\build.bat        :: configure, build and install
+tools\collab\build.bat run    :: start the built app
+```
+
+For a release build and the installer, see `tools/collab/installer/README.md`. Other platforms
+build the same way as MuseScore Studio; see MuseScore's
+[developer documentation](https://github.com/musescore/MuseScore/wiki).
+
+## Use your own server
+
+Ploq uses ploq.app's server unless the `COLLAB_SERVER` environment variable says otherwise:
+
+```
+setx COLLAB_SERVER "https://ploq-server.your-name.workers.dev"
+```
+
+then restart Ploq. Development builds stay offline unless `COLLAB_SERVER` is set.
+
+## Contributing
+
+Bug reports and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Please report
+security problems privately through **Security > Report a vulnerability** on this repository,
+not in a public issue.
 
 ## License
 
-MuseScore Studio is licensed under GPL version 3.0. See [license file](https://github.com/musescore/MuseScore/blob/master/LICENSE.txt) in the same directory.
+Ploq is free software under the GNU General Public License version 3, like MuseScore Studio; see
+[LICENSE.txt](LICENSE.txt). Third-party components keep their own licenses (see `thirdparty/`
+and `tools/collab/installer/THIRD_PARTY_NOTICES.txt`).
 
-## Packages
-
-See [Code Structure on Wiki](https://github.com/musescore/MuseScore/wiki/CodeStructure)
-
-## Building
-
-**Read the [Compilation section](https://github.com/musescore/MuseScore/wiki/Set-up-developer-environment) of the [MuseScore Wiki](https://github.com/musescore/MuseScore/wiki) for a complete build walkthrough and a list of dependencies.**
-
-### Getting sources
-
-If using git to download repo of entire code history, type:
-
-    git clone https://github.com/musescore/MuseScore.git
-    cd MuseScore
-
-Otherwise, you can just download the latest source release tarball from the [Releases page](https://github.com/musescore/MuseScore/releases), and then from your download directory type:
-
-    tar xzf MuseScore-x.x.x.tar.gz
-    cd MuseScore-x.x.x
-
-### Release Build
-
-To compile MuseScore Studio for release, type:
-
-    cmake -P build.cmake -DCMAKE_BUILD_TYPE=Release
-
-If something goes wrong, append the word "clean" to the above command to delete the build subdirectory:
-
-    cmake -P build.cmake -DCMAKE_BUILD_TYPE=Release clean
-
-Then try running the first command again.
-
-### Running
-
-To start MuseScore Studio, type:
-
-    cmake -P build.cmake -DCMAKE_BUILD_TYPE=Release run
-
-Or run the compiled executable directly.
-
-### Debug Build
-
-A debug version can be built and run by replacing `-DCMAKE_BUILD_TYPE=Release`
-with `-DCMAKE_BUILD_TYPE=Debug` in the above commands.
-
-If you omit the `-DCMAKE_BUILD_TYPE` option entirely then `RelWithDebInfo` is
-used by default, as it provides a useful compromise between Release and Debug.
-
-### Testing
-
-See the [Unit tests section](https://github.com/musescore/MuseScore/wiki/Unit-tests) of the [MuseScore Wiki](https://github.com/musescore/MuseScore/wiki) for instructions on how to run the test suite.
-
-### Code Formatting
-
-Run `./hooks/install.sh` to install a pre-commit hook that will format your staged files. Requires that you install `uncrustify`.
-
-If you have problems, please report them. To uninstall, run `./hooks/uninstall.sh`.
+MuseScore and Muse Sounds are trademarks of Muse Group. Muse Sounds are not part of Ploq.

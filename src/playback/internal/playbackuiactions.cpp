@@ -35,7 +35,17 @@ using namespace muse::actions;
 static const ActionCode PLAY_FROM_SELECTION_CODE("play-from-selection");
 static const ActionCode CLEAR_ONLINE_SOUNDS_CACHE_CODE("clear-online-sounds-cache");
 
+// COLLAB: Ploq: Muse Sounds can't play in Ploq; this opens a copy of the score in MuseScore Studio
+static const UiAction PLOQ_LISTEN_IN_STUDIO_ACTION("ploq-listen-in-studio",
+                                                   mu::context::UiCtxProjectOpened,
+                                                   mu::context::CTX_ANY,
+                                                   TranslatableString("action", "Listen in MuseScore Studio"),
+                                                   TranslatableString("action", "Open a copy of this score in MuseScore Studio to hear it with Muse Sounds"),
+                                                   IconCode::Code::AUDIO
+                                                   );
+
 const UiActionList PlaybackUiActions::s_mainActions = {
+    PLOQ_LISTEN_IN_STUDIO_ACTION, // COLLAB: Ploq
     UiAction("play",
              mu::context::UiCtxProjectOpened,
              mu::context::CTX_NOTATION_FOCUSED,
@@ -338,6 +348,7 @@ const muse::ui::ToolConfig& PlaybackUiActions::defaultPlaybackToolConfig()
             { "loop-in", true },
             { "loop-out", true },
             { "metronome", true },
+            { "ploq-listen-in-studio", true }, // COLLAB: Ploq
         };
     }
     return config;

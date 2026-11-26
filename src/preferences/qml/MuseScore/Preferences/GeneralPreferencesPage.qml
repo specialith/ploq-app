@@ -74,9 +74,10 @@ PreferencesPage {
             navigation.order: root.navigationOrderStart + 2
         }
 
-        SeparatorLine { }
+        SeparatorLine { visible: false } // COLLAB: Ploq has no welcome popup
 
         WelcomeDialogSection {
+            visible: false // COLLAB: Ploq has no welcome popup
             model: preferencesModel
 
             navigation.section: root.navigationSection

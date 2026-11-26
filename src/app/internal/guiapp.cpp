@@ -5,6 +5,7 @@
 #include <QQuickWindow>
 #include <QQmlContext>
 #include <QTimer>
+#include <QWindow>
 
 #include "modularity/imodulesetup.h"
 #include "modularity/ioc.h"
@@ -43,6 +44,49 @@ using namespace mu::appshell;
 
 static int m_lastId = 0;
 
+//! Ploq QA (tools/collab/qa-auto): background two-instance test runs set
+//! COLLAB_AUTOBOT. Their windows must never take focus from whatever the
+//! person at the computer is doing, so every window is shown without being
+//! activated (Qt's Windows backend reads "_q_showWithoutActivating" when it
+//! first shows a window; surface creation comes just before that).
+//!
+//! PLOQ_NO_ACTIVATE=1 (the ploq.app hero-video recorder, windowed QA): the same,
+//! and on top of that every window refuses focus (Qt::WindowDoesNotAcceptFocus,
+//! i.e. WS_EX_NOACTIVATE), because Windows still let a not-activated window
+//! come to the front once the user had been idle for a while.
+static bool isNoActivateRun()
+{
+    static const bool v = qEnvironmentVariable("PLOQ_NO_ACTIVATE") == "1";
+    return v;
+}
+
+static bool isBackgroundQaRun()
+{
+    static const bool qa = !qEnvironmentVariableIsEmpty("COLLAB_AUTOBOT") || isNoActivateRun();
+    return qa;
+}
+
+namespace {
+class ShowWithoutActivatingFilter : public QObject
+{
+public:
+    using QObject::QObject;
+    bool eventFilter(QObject* obj, QEvent* e) override
+    {
+        if (e->type() == QEvent::PlatformSurface && obj->isWindowType()) {
+            obj->setProperty("_q_showWithoutActivating", true);
+            if (isNoActivateRun()) {
+                QWindow* w = static_cast<QWindow*>(obj);
+                if (!(w->flags() & Qt::WindowDoesNotAcceptFocus)) {
+                    w->setFlag(Qt::WindowDoesNotAcceptFocus, true);
+                }
+            }
+        }
+        return false;
+    }
+};
+}
+
 GuiApp::GuiApp(const CmdOptions& options, const modularity::ContextPtr& ctx)
     : muse::BaseApplication(ctx), m_options(options)
 {
@@ -56,6 +100,10 @@ void GuiApp::addModule(muse::modularity::IModuleSetup* module)
 void GuiApp::setup()
 {
     const CmdOptions& options = m_options;
+
+    if (isBackgroundQaRun()) {
+        qApp->installEventFilter(new ShowWithoutActivatingFilter(qApp));
+    }
 
     IApplication::RunMode runMode = options.runMode;
     IF_ASSERT_FAILED(runMode == IApplication::RunMode::GuiApp) {
@@ -128,7 +176,9 @@ void GuiApp::setup()
     muse::async::processMessages();
 
 #ifdef MUE_ENABLE_SPLASHSCREEN
-    if (multiwindowsProvider()->windowCount() == 1) { // first
+    if (isBackgroundQaRun()) {
+        // no splash for background QA runs (see isBackgroundQaRun)
+    } else if (multiwindowsProvider()->windowCount() == 1) { // first
         m_splashScreen = new SplashScreen(SplashScreen::Default);
     } else {
         const project::ProjectFile& file = startupScenario()->startupScoreFile();

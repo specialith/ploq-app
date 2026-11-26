@@ -33,8 +33,7 @@ FirstLaunchSetupModel::FirstLaunchSetupModel(QObject* parent)
 {
     m_pages = {
         Page { "ThemesPage.qml", "musescore://notation" },
-        Page { "PlaybackPage.qml", "musescore://notation" },
-        Page { "TutorialsPage.qml", "musescore://home?section=learn" }
+        // COLLAB: Ploq: themes only (Playback promotes MuseHub, Tutorials opens Learn; both Muse Group services)
     };
 }
 

@@ -87,6 +87,18 @@ void DialogView::beforeOpen()
     m_view->setTitle(m_title);
     m_view->setFlag(Qt::FramelessWindowHint, m_frameless);
 
+    // COLLAB: Ploq: a fixed-size dialog gets only a close button. With plain Qt::Dialog, Windows adds
+    // minimize/maximize too; maximize can't do anything at a fixed size, and minimizing a modal dialog
+    // minimizes the whole app with it (reported on the Share dialog). Resizable dialogs keep theirs.
+    if (!m_frameless && !resizable()) {
+        // One flag at a time: setFlags() would also drop flags set elsewhere (e.g. WindowDoesNotAcceptFocus).
+        m_view->setFlag(Qt::CustomizeWindowHint, true);
+        m_view->setFlag(Qt::WindowTitleHint, true);
+        m_view->setFlag(Qt::WindowCloseButtonHint, true);
+        m_view->setFlag(Qt::WindowMinimizeButtonHint, false);
+        m_view->setFlag(Qt::WindowMaximizeButtonHint, false);
+    }
+
 #ifdef MUSE_MODULE_UI_DISABLE_MODALITY
     m_view->setModality(Qt::NonModal);
 #else

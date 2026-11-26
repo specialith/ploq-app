@@ -27,6 +27,8 @@
 
 #include "app_config.h"
 
+#include "collab/ploqupdate.h" // COLLAB: Ploq update feed
+
 using namespace muse;
 using namespace muse::update;
 
@@ -106,6 +108,7 @@ bool UpdateConfiguration::checkForUpdateTestMode() const
 
 std::string UpdateConfiguration::checkForAppUpdateUrl() const
 {
+    return mu::collab::ploq::updateFeedUrl().toStdString(); // COLLAB: Ploq's server, never Muse Group's
     return !allowUpdateOnPreRelease()
            ? m_config.value("latest").toString()
            : m_config.value("latest.test").toString();
@@ -113,6 +116,7 @@ std::string UpdateConfiguration::checkForAppUpdateUrl() const
 
 std::string UpdateConfiguration::previousAppReleasesNotesUrl() const
 {
+    return std::string(); // COLLAB: Ploq: no release-notes history feed
     return !allowUpdateOnPreRelease()
            ? m_config.value("all").toString()
            : m_config.value("all.test").toString();

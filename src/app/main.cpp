@@ -26,8 +26,14 @@
 #include <QStyleHints>
 #include <QQuickWindow>
 #include <QSslSocket>
+#include <QDir> // COLLAB: Ploq: QA window grabs
+#include <QFile>
+#include <QImage>
+#include <QRegularExpression>
+#include <QTimer>
 
 #include "appfactory.h"
+#include "collab/ploqapp.h" // COLLAB: Ploq identity + first launch
 #include "internal/commandlineparser.h"
 #include "global/iapplication.h"
 
@@ -57,6 +63,49 @@ static void crashCallback(int signum)
 
 #endif
 
+// COLLAB: Ploq dev/QA only: COLLAB_CRASH_DUMP=<folder> writes a minidump there on a
+// crash instead of the one-line "Oops" log, so a crash in a QA run has a stack.
+// COLLAB: a dump holds process memory, which can include the Ploq sign-in token: don't share dumps.
+#if defined(Q_OS_WIN) && !defined(MUSE_MODULE_DIAGNOSTICS_CRASHPAD_CLIENT)
+#include <windows.h>
+#include <dbghelp.h>
+static wchar_t s_crashDumpDir[MAX_PATH] = { 0 };
+static LONG WINAPI ploqWriteCrashDump(EXCEPTION_POINTERS* ep)
+{
+    using MiniDumpWriteDumpFn = BOOL(WINAPI*)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE, PMINIDUMP_EXCEPTION_INFORMATION,
+                                               PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
+    HMODULE dbghelp = LoadLibraryExW(L"dbghelp.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32); // COLLAB: System32 only, never the app folder
+    auto writeDump = dbghelp ? reinterpret_cast<MiniDumpWriteDumpFn>(GetProcAddress(dbghelp, "MiniDumpWriteDump")) : nullptr;
+    if (writeDump) {
+        wchar_t path[MAX_PATH];
+        swprintf_s(path, L"%s\\Ploq-%lu-%llu.dmp", s_crashDumpDir, GetCurrentProcessId(),
+                   static_cast<unsigned long long>(GetTickCount64()));
+        HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (f != INVALID_HANDLE_VALUE) {
+            MINIDUMP_EXCEPTION_INFORMATION info { GetCurrentThreadId(), ep, FALSE };
+            writeDump(GetCurrentProcess(), GetCurrentProcessId(), f,
+                      static_cast<MINIDUMP_TYPE>(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithThreadInfo),
+                      &info, nullptr, nullptr);
+            CloseHandle(f);
+        }
+    }
+    LOGE() << "Oops! Application crashed (exception code " << static_cast<unsigned long>(ep->ExceptionRecord->ExceptionCode)
+           << "); minidump written to COLLAB_CRASH_DUMP";
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+static bool ploqInstallCrashDump()
+{
+    const DWORD n = GetEnvironmentVariableW(L"COLLAB_CRASH_DUMP", s_crashDumpDir, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) {
+        return false;
+    }
+    SetUnhandledExceptionFilter(ploqWriteCrashDump);
+    return true;
+}
+
+#endif
+
 static void app_init_qrc()
 {
     Q_INIT_RESOURCE(app);
@@ -66,12 +115,148 @@ static void app_init_qrc()
 #endif
 }
 
+#ifdef MUSE_APP_UNSTABLE
+// COLLAB: Ploq dev/QA only (tools/collab/qa-auto/shots.ps1): PLOQ_QA_GRAB=<folder> renders every
+// visible window to <folder>/<n>-<title>.png once PLOQ_QA_GRAB_MS (default 9000) ms have passed, then
+// lists them in <folder>/shots.done. Works on the offscreen platform, so nothing shows on screen.
+static void ploqQaGrabIfAsked(QObject* ctx)
+{
+    const QString dir = qEnvironmentVariable("PLOQ_QA_GRAB");
+    if (dir.isEmpty()) {
+        return;
+    }
+    bool ok = false;
+    int ms = qEnvironmentVariableIntValue("PLOQ_QA_GRAB_MS", &ok);
+    QTimer::singleShot(ok ? ms : 9000, ctx, [dir]() {
+        QDir().mkpath(dir);
+        QStringList saved;
+        int n = 0;
+        for (QWindow* w : QGuiApplication::topLevelWindows()) {
+            auto* qw = qobject_cast<QQuickWindow*>(w);
+            if (!qw || !qw->isVisible()) {
+                continue;
+            }
+            QString title = qw->title();
+            title.replace(QRegularExpression("[^A-Za-z0-9 _-]"), "_");
+            const QString path = QDir(dir).filePath(QString("%1-%2.png").arg(++n).arg(title.left(40)));
+            const QImage img = qw->grabWindow();
+            if (!img.isNull() && img.save(path)) {
+                saved << path;
+            }
+            LOGI() << "ploq: QA grab of window '" << qw->title() << "' -> " << (saved.contains(path) ? path : QString("failed"));
+        }
+        QFile done(QDir(dir).filePath("shots.done"));
+        if (done.open(QIODevice::WriteOnly)) {
+            done.write(saved.join(QChar(u'\n')).toUtf8());
+        }
+    });
+}
+
+#endif
+
+// COLLAB: Ploq: ploq:// links (and pasted invite URLs) are opened by Ploq.exe itself,
+// registered as  "Ploq.exe" --ploq-link "%1"  (src/collab/collabmodule.cpp, the installer).
+// No PowerShell in between, so no console window flashes up.
+// Everything after --ploq-link on the raw command line is the link, as text: it must be one
+// of the exact shapes below, and no other argument ever reaches the app, so a link can't
+// smuggle in command-line options (e.g. a quote to end "%1" early). Same rules as
+// tools/collab/portable/Open-Link.ps1.
+#ifdef Q_OS_WIN
+#include <windows.h>
+
+static void ploqLinkMessage(const wchar_t* text)
+{
+    MessageBoxW(nullptr, text, L"Ploq", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+}
+
+//! -1: not a link launch, start normally. -2: an invite / "Open in Ploq" link: start normally with
+//! COLLAB_INVITE set and no other arguments. 0 / 1: a sign-in link handed over / a link refused: exit.
+static int ploqHandleLink(int& argc, char** argv)
+{
+    static const char* const flagArg = "--ploq-link";
+    if (argc < 2 || qstrcmp(argv[1], flagArg) != 0) {
+        return -1; // only as the first argument, which is what the registration writes
+    }
+    // The link is the rest of the raw command line, not argv[2]: whatever a link does with
+    // quotes and spaces, it all lands in this one string and fails the shape check below.
+    const QString cmd = QString::fromWCharArray(GetCommandLineW());
+    const qsizetype at = cmd.indexOf(QLatin1String(flagArg));
+    if (at < 0) {
+        ploqLinkMessage(L"That isn't a Ploq link, so nothing was opened.");
+        return 1;
+    }
+    QString link = cmd.mid(at + qstrlen(flagArg)).trimmed();
+    if (link.size() >= 2 && link.startsWith(u'"') && link.endsWith(u'"')) {
+        link = link.mid(1, link.size() - 2);
+    }
+
+    static const QRegularExpression signin(QStringLiteral(R"(\Aploq://signin\?state=([0-9a-f]{32})&code=[0-9a-f]{32}/?\z)"));
+    static const QRegularExpression invite(QStringLiteral(
+        R"(\A(?:ploq://join/[0-9a-f]{24}|ploq://open/p_[0-9a-f]{24}\?code=[0-9a-f]{32}|https://collab\.ploq\.app/j/[0-9a-f]{24})/?\z)"));
+
+    const QRegularExpressionMatch s = signin.match(link);
+    if (s.hasMatch()) {
+        // Back to the Ploq that's waiting for this sign-in (BrowserSignIn's QLocalServer).
+        const std::wstring pipe = L"\\\\.\\pipe\\ploq-signin-" + s.captured(1).toStdWString();
+        HANDLE h = INVALID_HANDLE_VALUE;
+        for (int i = 0; i < 2 && h == INVALID_HANDLE_VALUE; ++i) {
+            if (i > 0 && !WaitNamedPipeW(pipe.c_str(), 3000)) {
+                break;
+            }
+            h = CreateFileW(pipe.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+        }
+        if (h == INVALID_HANDLE_VALUE) {
+            ploqLinkMessage(L"This sign-in has expired, or it wasn't started in Ploq on this computer. "
+                            L"In Ploq, click Share to sign in again.");
+            return 1;
+        }
+        // If the waiting Ploq never reads, don't sit here as an invisible process forever.
+        CreateThread(nullptr, 0, [](LPVOID) -> DWORD { Sleep(10000); ExitProcess(1); }, nullptr, 0, nullptr);
+        const QByteArray bytes = (link + u'\n').toLatin1();
+        DWORD written = 0;
+        const bool ok = WriteFile(h, bytes.constData(), DWORD(bytes.size()), &written, nullptr) && written == DWORD(bytes.size());
+        FlushFileBuffers(h);
+        CloseHandle(h);
+        return ok ? 0 : 1;
+    }
+    if (invite.match(link).hasMatch()) {
+        if (!qEnvironmentVariableIsSet("COLLAB_SERVER")) {
+            qputenv("COLLAB_SERVER", "https://collab.ploq.app");
+        }
+        if (!qEnvironmentVariableIsSet("COLLAB_COLOR")) {
+            qputenv("COLLAB_COLOR", "#f58231");
+        }
+        qputenv("COLLAB_INVITE", link.toUtf8());
+        // A leftover "restore the last session?" would hold up joining.
+        QFile::remove(QDir::fromNativeSeparators(qEnvironmentVariable("LOCALAPPDATA")) + "/Ploq/Ploq/session/session.json");
+        argc = 1; // nothing from the command line but the program name
+        return -2;
+    }
+    ploqLinkMessage(L"That isn't a Ploq link, so nothing was opened.");
+    return 1;
+}
+#endif
+
 int main(int argc, char** argv)
 {
+#ifdef Q_OS_WIN
+    {
+        const int linkResult = ploqHandleLink(argc, argv); // COLLAB: Ploq: before anything else starts up
+        if (linkResult >= 0) {
+            return linkResult;
+        }
+    }
+#endif
+
 #ifndef MUSE_MODULE_DIAGNOSTICS_CRASHPAD_CLIENT
-    signal(SIGSEGV, crashCallback);
-    signal(SIGILL, crashCallback);
-    signal(SIGFPE, crashCallback);
+#ifdef Q_OS_WIN
+    if (!ploqInstallCrashDump()) // COLLAB: Ploq: the signal handlers would swallow the crash before the dump
+#endif
+    {
+        signal(SIGSEGV, crashCallback);
+        signal(SIGILL, crashCallback);
+        signal(SIGFPE, crashCallback);
+    }
 #endif
 
     // ====================================================
@@ -115,13 +300,15 @@ int main(int argc, char** argv)
 
 // Can't use MUSE_APP_TITLE until next major release, because this "application name" is used to determine
 // where user settings are stored. Changing it would result in all user settings being lost.
+// COLLAB: Ploq keeps its own settings (%APPDATA%\Ploq\Ploq.ini, %LOCALAPPDATA%\Ploq\Ploq) so it never
+// touches a regular MuseScore install's files. See src/collab/ploqapp.h.
 #ifdef MUSE_APP_UNSTABLE
-    QCoreApplication::setApplicationName("MuseScore4Development");
+    QCoreApplication::setApplicationName("PloqDevelopment"); // COLLAB: was MuseScore4Development
 #else
-    QCoreApplication::setApplicationName("MuseScore4");
+    QCoreApplication::setApplicationName("Ploq"); // COLLAB: was MuseScore4
 #endif
-    QCoreApplication::setOrganizationName("MuseScore");
-    QCoreApplication::setOrganizationDomain("musescore.org");
+    QCoreApplication::setOrganizationName("Ploq"); // COLLAB: was MuseScore
+    QCoreApplication::setOrganizationDomain("ploq.app"); // COLLAB: was musescore.org
     QCoreApplication::setApplicationVersion(MUSE_APP_VERSION);
 
 #if !defined(Q_OS_WIN) && !defined(Q_OS_DARWIN) && !defined(Q_OS_WASM)
@@ -175,6 +362,8 @@ int main(int argc, char** argv)
     opt.runMode = IApplication::RunMode::GuiApp;
 #endif
 
+    mu::collab::ploq::onAppCreated(); // COLLAB: Ploq version + first-launch settings (before settings load)
+
     AppFactory f;
     std::shared_ptr<muse::IApplication> app = f.newApp(opt);
 
@@ -192,6 +381,10 @@ int main(int argc, char** argv)
     // ====================================================
     // Run main loop
     // ====================================================
+#ifdef MUSE_APP_UNSTABLE
+    ploqQaGrabIfAsked(qapp); // COLLAB: Ploq
+#endif
+
     int code = qapp->exec();
 
     // ====================================================

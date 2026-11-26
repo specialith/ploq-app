@@ -237,6 +237,8 @@
 #include "stubs/notation/notationstubmodule.h"
 #endif
 
+#include "collab/collabmodule.h" // COLLAB: real-time collaboration module
+
 #ifdef MUE_BUILD_NOTATIONSCENE_MODULE
 #include "notationscene/notationscenemodule.h"
 #else
@@ -408,6 +410,7 @@ std::shared_ptr<muse::IApplication> AppFactory::newGuiApp(const CmdOptions& opti
     app->addModule(new mu::musesounds::MuseSoundsModule());
     app->addModule(new mu::notation::NotationModule());
     app->addModule(new mu::notation::NotationSceneModule());
+    app->addModule(new mu::collab::CollabModule()); // COLLAB: real-time collaboration module
     app->addModule(new mu::palette::PaletteModule());
     app->addModule(new mu::playback::PlaybackModule());
 #ifdef MUE_BUILD_PREFERENCES_MODULE

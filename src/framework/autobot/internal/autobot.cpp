@@ -69,7 +69,10 @@ void Autobot::affectOnServices()
     IApplication::RunMode runMode = application()->runMode();
     if (runMode == IApplication::RunMode::GuiApp) {
         //! NOTE Move focus to main window
-        mainWindow()->qWindow()->requestActivate();
+        //! (Not for Ploq's background two-instance QA runs: they must never take focus.)
+        if (qEnvironmentVariableIsEmpty("COLLAB_AUTOBOT")) {
+            mainWindow()->qWindow()->requestActivate();
+        }
 
         //! NOTE Disable reset on mouse press for testing purpose
         navigation()->setIsResetOnMousePress(false);

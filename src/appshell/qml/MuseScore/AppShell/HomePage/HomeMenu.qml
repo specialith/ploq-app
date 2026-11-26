@@ -62,6 +62,7 @@ Item {
         spacing: 0
 
         AccountInfoButton {
+            visible: false // COLLAB: Ploq: no MuseScore.com / Audio.com accounts
             Layout.fillWidth: true
             Layout.preferredHeight: 60
             Layout.topMargin: 20
@@ -89,9 +90,8 @@ Item {
 
             model: [
                 { "name": "scores", "title": qsTrc("appshell", "Scores"), "iconCode": IconCode.MUSIC_NOTES },
-                { "name": "extensions", "title": qsTrc("appshell", "Plugins"), "iconCode":  IconCode.PLUGIN },
-                { "name": "musesounds", "title": qsTrc("appshell", "MuseSounds"), "iconCode": IconCode.PLAY },
-                { "name": "learn", "title": qsTrc("appshell", "Learn"), "iconCode":  IconCode.MORTAR_BOARD }
+                { "name": "extensions", "title": qsTrc("appshell", "Plugins"), "iconCode":  IconCode.PLUGIN }
+                // COLLAB: Ploq: no MuseSounds store / Learn pages (Muse Group online services)
             ]
 
             currentIndex: 0

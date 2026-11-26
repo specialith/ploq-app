@@ -39,7 +39,7 @@ BaseSection {
         id: needCheckBox
         width: parent.width
 
-        text: qsTrc("preferences", "Check to see if a new version of MuseScore Studio is available")
+        text: "Check to see if a new version of Ploq is available" // COLLAB: was "...MuseScore Studio..."
 
         visible: root.isAppUpdatable
 
@@ -55,9 +55,8 @@ BaseSection {
     StyledTextLabel {
         width: parent.width
 
-        text: qsTrc("preferences", "Update checking requires network access. In order to protect your privacy, MuseScore Studio does not store any personal information. See our <a href=\"%1\">privacy policy</a> for more info.")
-              .arg(root.museScorePrivacyPolicyUrl)
-              .replace("\n", "<br>")
+        // COLLAB: Ploq's own text (was MuseScore's, with MuseScore's privacy policy link)
+        text: "Update checking asks the Ploq server (collab.ploq.app) whether there is a newer version. Ploq only installs updates signed by the Ploq team."
 
         horizontalAlignment: Qt.AlignLeft
         wrapMode: Text.WordWrap

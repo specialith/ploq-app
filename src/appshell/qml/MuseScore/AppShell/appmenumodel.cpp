@@ -204,9 +204,13 @@ MenuItem* AppMenuModel::makeFileMenu()
         makeSeparator(),
         makeMenuItem("file-save"),
         makeMenuItem("file-save-as"),
-        makeMenuItem("file-save-to-cloud"),
+        // COLLAB: Ploq: no "Save to cloud" / "Publish online" (MuseScore.com, Audio.com)
         makeMenu(TranslatableString("appshell/menu/file", "Save o&ther"), makeSaveOtherSubItems()),
-        makeMenu(TranslatableString("appshell/menu/file", "Pu&blish online"), makePublishOnlineSubItems()),
+        makeSeparator(),
+        // COLLAB: Ploq: share from where "Publish online" was (src/collab/internal/collabuiactions.cpp)
+        makeMenuItem("ploq-share", TranslatableString::untranslatable("&Share…")),
+        makeMenuItem("ploq-manage-on-web"),
+        makeMenuItem("ploq-sign-out"),
         makeSeparator(),
         makeMenuItem("file-convert-to-score"),
         makeMenuItem("file-export"),

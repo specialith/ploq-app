@@ -70,6 +70,11 @@ void MainWindow::requestShowOnFront()
     if (!m_bridge) {
         return;
     }
+    // Ploq background QA runs (tools/collab/qa-auto) must never take focus,
+    // including when another instance asks over IPC.
+    if (!qEnvironmentVariableIsEmpty("COLLAB_AUTOBOT")) {
+        return;
+    }
 
     m_bridge->showOnFront();
 }

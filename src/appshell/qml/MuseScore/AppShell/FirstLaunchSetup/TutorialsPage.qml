@@ -73,8 +73,8 @@ Page {
 
             Layout.fillWidth: true
 
-            text: qsTrc("appshell/gettingstarted", "In order to protect your privacy, MuseScore Studio does not collect any personal information. See our <a href=\"%1\">Privacy Policy</a> for more info.")
-                  .arg(tutorialsModel.museScorePrivacyPolicyUrl())
+            // COLLAB: Ploq's own privacy note (was MuseScore's text + MuseScore's privacy policy link)
+            text: "Ploq sends nothing to Muse Group. When you share a score, the score and your display name are stored on the Ploq server so your collaborators can open it."
 
             wrapMode: Text.WordWrap
         }

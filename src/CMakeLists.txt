@@ -68,6 +68,8 @@ else()
     add_subdirectory(stubs/notationscene)
 endif()
 
+add_subdirectory(collab) # COLLAB: real-time collaboration module
+
 if (MUE_BUILD_PALETTE_MODULE)
     add_subdirectory(palette)
 else()

@@ -188,6 +188,7 @@ if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/SetupConfigure.local.cmake")
 else()
     include(SetupConfigure)
 endif()
+include(${CMAKE_CURRENT_LIST_DIR}/src/collab/PloqOptions.cmake) # COLLAB: Ploq switches (Muse Group services off)
 
 set(MUSE_FRAMEWORK_SRC_PATH ${PROJECT_SOURCE_DIR}/src/framework)
 set(THIRDPARTY_DIR ${PROJECT_SOURCE_DIR}/thirdparty)

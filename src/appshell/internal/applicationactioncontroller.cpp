@@ -38,6 +38,8 @@
 #include "translation.h"
 #include "log.h"
 
+#include "collab/ploqupdate.h" // COLLAB: Ploq: verified installer launch
+
 using namespace mu::appshell;
 using namespace muse;
 using namespace muse::actions;
@@ -262,6 +264,12 @@ bool ApplicationActionController::quit(bool isAllInstances, const muse::io::path
     if (multiwindowsProvider()->windowCount() == 1 && !installerPath.empty()) {
 #if defined(Q_OS_LINUX)
         interactive()->revealInFileBrowser(installerPath);
+#elif defined(Q_OS_WIN)
+        // COLLAB: Ploq: re-check the downloaded installer, then run it with msiexec /passive (was: openUrl, unchecked)
+        QString why;
+        if (!mu::collab::ploq::launchVerifiedInstaller(installerPath.toQString(), &why)) {
+            LOGE() << "ploq: update not installed: " << why;
+        }
 #else
         interactive()->openUrl(QUrl::fromLocalFile(installerPath.toQString()));
 #endif

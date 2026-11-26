@@ -29,7 +29,7 @@ set(EXECUTABLE_NAME mscore)
 ###########################################
 include(GetPlatformInfo)
 if (OS_IS_WIN)
-    set(EXECUTABLE_NAME ${MUSE_APP_NAME}${MUSE_APP_VERSION_MAJOR})
+    set(EXECUTABLE_NAME Ploq) # COLLAB: Ploq.exe (was ${MUSE_APP_NAME}${MUSE_APP_VERSION_MAJOR} = MuseScore4.exe)
 
     include(GetCompilerInfo)
 
@@ -174,6 +174,7 @@ add_to_link_if_exists(instrumentsscene)
 add_to_link_if_exists(musesounds)
 add_to_link_if_exists(notation)
 add_to_link_if_exists(notationscene)
+add_to_link_if_exists(collab) # COLLAB: real-time collaboration module
 add_to_link_if_exists(palette)
 add_to_link_if_exists(playback)
 add_to_link_if_exists(preferences)

@@ -34,6 +34,12 @@ AboutModel::AboutModel(QObject* parent)
 {
 }
 
+// COLLAB: Ploq's own version (set by src/collab/ploqapp.cpp)
+QString AboutModel::ploqVersion() const
+{
+    return qApp->property("ploqVersion").toString();
+}
+
 QString AboutModel::museScoreVersion() const
 {
     QString version = QString::fromStdString(configuration()->museScoreVersion());

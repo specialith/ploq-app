@@ -47,6 +47,7 @@ target_sources(notationscene PRIVATE
 add_subdirectory(widgets)
 
 target_link_libraries(notationscene PRIVATE
+    collab # COLLAB: live-cursor hooks in abstractnotationpaintview.cpp
     notation
     muse::ui
     Qt::Quick

@@ -34,6 +34,17 @@ bool MuseSamplerCheckStatusScenario::alreadyChecked() const
 
 void MuseSamplerCheckStatusScenario::checkAndShowStatusIfNeed()
 {
+    // COLLAB: Ploq: no Muse Sounds popups or update checks. Muse Group's library refuses to load
+    // inside any app but MuseScore Studio ("ProtectionRejected"), so "Open MuseHub" can't fix it.
+    // Ploq plays with its built-in sounds; the reason is logged once.
+    if (!m_alreadyChecked) {
+        m_alreadyChecked = true;
+        if (service()->libInitFailed()) {
+            LOGI() << "ploq: Muse Sounds not available (the Muse Sounds library only runs inside MuseScore Studio); using built-in sounds";
+        }
+    }
+    return;
+
     if (multiwindowsProvider()->windowCount() != 1) {
         return;
     }

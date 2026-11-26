@@ -1,0 +1,3 @@
+// Generated from src/collab/PLOQ_VERSION by CMake. Do not edit.
+#pragma once
+#define PLOQ_VERSION "@PLOQ_VERSION@"

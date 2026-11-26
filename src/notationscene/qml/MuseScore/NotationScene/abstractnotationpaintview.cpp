@@ -31,6 +31,8 @@
 #include "engraving/dom/shadownote.h"
 #include "log.h"
 
+#include "collab/collabhooks.h" // COLLAB: live cursors
+
 using namespace mu;
 using namespace mu::notation;
 using namespace muse;
@@ -546,7 +548,7 @@ void AbstractNotationPaintView::onNoteInputStateChanged()
 {
     TRACEFUNC;
 
-    setAcceptHoverEvents(isNoteEnterMode());
+    setAcceptHoverEvents(isNoteEnterMode() || mu::collab::wantsHoverEvents()); // COLLAB: hover always on for live cursors
     updateLoopMarkers();
     updateShadowNoteVisibility();
     scheduleRedraw();
@@ -699,6 +701,7 @@ void AbstractNotationPaintView::paint(QPainter* qp)
 
     m_loopInMarker->paint(painter);
     m_loopOutMarker->paint(painter);
+    mu::collab::paintRemoteCursors(painter, this); // COLLAB: collaborators' cursors
 
     if (notation()->viewMode() == engraving::LayoutMode::LINE) {
         ContinuousPanel::NotationViewContext nvCtx;
@@ -1257,6 +1260,7 @@ void AbstractNotationPaintView::mouseMoveEvent(QMouseEvent* event)
     TRACEFUNC;
     if (isInited()) {
         m_inputController->mouseMoveEvent(event);
+        mu::collab::localPointerMoved(toLogical(event->position())); // COLLAB: share our cursor
     }
 }
 
@@ -1281,6 +1285,7 @@ void AbstractNotationPaintView::hoverMoveEvent(QHoverEvent* event)
 {
     if (isInited()) {
         m_inputController->hoverMoveEvent(event);
+        mu::collab::localPointerMoved(toLogical(event->position())); // COLLAB: share our cursor
     }
 }
 
@@ -1288,6 +1293,7 @@ void AbstractNotationPaintView::hoverLeaveEvent(QHoverEvent* event)
 {
     if (isInited()) {
         m_inputController->hoverLeaveEvent(event);
+        mu::collab::localPointerLeft(); // COLLAB: hide our cursor for others
     }
 }
 

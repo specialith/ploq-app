@@ -35,6 +35,9 @@
 #include "translation.h"
 #include "log.h"
 
+#include "collab/ploqapp.h" // COLLAB: Ploq version
+#include "collab/ploqupdate.h" // COLLAB: Ploq: signed update feed + verified download
+
 using namespace muse;
 using namespace muse::update;
 using namespace muse::network;
@@ -158,7 +161,14 @@ Promise<RetVal<ReleaseInfo> > AppUpdateService::checkForUpdate()
                 LOGE() << writeHistoryRet.toString();
             }
 
-            QByteArray json = buff->data();
+            // COLLAB: Ploq: only a release description signed with Ploq's release key is used
+            QString unsignedWhy;
+            QByteArray json = mu::collab::ploq::unwrapSignedRelease(buff->data(), &unsignedWhy);
+            if (json.isEmpty()) {
+                m_lastCheckResult.ret = make_ret(Err::ReleaseInfoParseError, unsignedWhy.toStdString());
+                (void)resolve(m_lastCheckResult);
+                return;
+            }
             RetVal<ReleaseInfo> releaseInfo = parseRelease(json);
 
             if (!releaseInfo.ret) {
@@ -167,7 +177,7 @@ Promise<RetVal<ReleaseInfo> > AppUpdateService::checkForUpdate()
                 return;
             }
 
-            Version current(application()->fullVersion());
+            Version current(mu::collab::ploq::version().toStdString()); // COLLAB: compare with Ploq's own version (was application()->fullVersion())
             Version update(releaseInfo.val.version);
 
             bool allowUpdateOnPreRelease = configuration()->allowUpdateOnPreRelease();
@@ -232,6 +242,13 @@ RetVal<Progress> AppUpdateService::downloadRelease()
     downloadProgress.val.finished().onReceive(this, [this, info, buff](const ProgressResult& res) {
         if (!res.ret) {
             m_updateProgress.finish(ProgressResult::make_ret(res.ret));
+            return;
+        }
+
+        // COLLAB: Ploq: the download must match the size + SHA-256 in the signed description, or it is never saved/run
+        QString badWhy;
+        if (!mu::collab::ploq::verifyDownloadedUpdate(QString::fromStdString(info.fileName), buff->data(), &badWhy)) {
+            m_updateProgress.finish(ProgressResult::make_ret(make_ret(Err::ReleaseInfoParseError, badWhy.toStdString())));
             return;
         }
 

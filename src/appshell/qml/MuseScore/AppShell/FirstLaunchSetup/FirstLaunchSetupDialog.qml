@@ -32,7 +32,7 @@ StyledDialogView {
     title: qsTrc("appshell/gettingstarted", "Getting started")
 
     contentWidth: 576
-    contentHeight: 384
+    contentHeight: 444 // COLLAB: Ploq: was 384; room for the Muse Sounds line on the welcome page, clear of the buttons
 
     margins: 20
 

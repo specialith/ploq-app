@@ -282,6 +282,7 @@ muse::io::path_t ProjectConfiguration::defaultConvertFilePath() const
 
 bool ProjectConfiguration::shouldAskSaveLocationType() const
 {
+    return false; // COLLAB: Ploq saves to this computer only (no "cloud or computer?" question)
     return settings()->value(SHOULD_ASK_SAVE_LOCATION_TYPE).toBool();
 }
 
@@ -420,6 +421,7 @@ std::string ProjectConfiguration::uniqueFileNameAddition(const io::path_t& filen
 
 SaveLocationType ProjectConfiguration::lastUsedSaveLocationType() const
 {
+    return SaveLocationType::Local; // COLLAB: Ploq saves to this computer only
     return settings()->value(LAST_USED_SAVE_LOCATION_TYPE).toEnum<SaveLocationType>();
 }
 

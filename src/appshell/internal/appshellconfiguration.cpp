@@ -99,6 +99,11 @@ bool AppShellConfiguration::hasCompletedFirstLaunchSetup() const
 #ifdef Q_OS_WASM
     return true;
 #else
+    // COLLAB: Ploq: QA (tools/collab/qa-auto/shots.ps1) shows the first-launch dialog without
+    // touching the shared settings file.
+    if (qEnvironmentVariable("PLOQ_QA_FIRST_LAUNCH") == "1") {
+        return false;
+    }
     return settings()->value(HAS_COMPLETED_FIRST_LAUNCH_SETUP).toBool();
 #endif
 }
@@ -110,6 +115,7 @@ void AppShellConfiguration::setHasCompletedFirstLaunchSetup(bool has)
 
 bool AppShellConfiguration::welcomeDialogShowOnStartup() const
 {
+    return false; // COLLAB: Ploq: no welcome popup (it promotes Muse Group services)
     return settings()->value(WELCOME_DIALOG_SHOW_ON_STARTUP_KEY).toBool();
 }
 

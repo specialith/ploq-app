@@ -27,6 +27,7 @@
 #include "onlinesoundscontroller.h"
 
 #include "playbacktypes.h"
+#include "ploqstudiohandoff.h" // COLLAB: Ploq
 
 #include "engraving/dom/masterscore.h"
 #include "engraving/dom/stafftext.h"
@@ -39,6 +40,9 @@
 #include "containers.h"
 #include "defer.h"
 #include "log.h"
+#include "settings.h" // COLLAB: Ploq
+
+#include <QTimer> // COLLAB: Ploq
 
 using namespace muse;
 using namespace muse::actions;
@@ -70,6 +74,9 @@ static const ActionCode REPEAT_CODE("repeat");
 static const ActionCode PLAY_CHORD_SYMBOLS_CODE("play-chord-symbols");
 static const ActionCode PLAYBACK_SETUP("playback-setup");
 static const ActionCode TOGGLE_HEAR_PLAYBACK_WHEN_EDITING_CODE("toggle-hear-playback-when-editing");
+static const ActionCode PLOQ_LISTEN_IN_STUDIO_CODE("ploq-listen-in-studio"); // COLLAB: Ploq
+// COLLAB: Ploq: "Don't show again" for the Muse Sounds notice
+static const muse::Settings::Key PLOQ_MUSE_SOUNDS_NOTICE_KEY("playback", "ploq/playback/showMuseSoundsNotice");
 
 static AudioOutputParams makeReverbOutputParams()
 {
@@ -128,6 +135,8 @@ void PlaybackController::init()
     dispatcher()->reg(this, PLAYBACK_SETUP, this, &PlaybackController::openPlaybackSetupDialog);
     dispatcher()->reg(this, TOGGLE_HEAR_PLAYBACK_WHEN_EDITING_CODE, this, &PlaybackController::toggleHearPlaybackWhenEditing);
     dispatcher()->reg(this, "playback-reload-cache", this, &PlaybackController::reloadPlaybackCache);
+    dispatcher()->reg(this, PLOQ_LISTEN_IN_STUDIO_CODE, this, &PlaybackController::listenInMuseScoreStudio); // COLLAB: Ploq
+    muse::settings()->setDefaultValue(PLOQ_MUSE_SOUNDS_NOTICE_KEY, muse::Val(true)); // COLLAB: Ploq
 
     m_onlineSoundsController->regActions();
 
@@ -1157,7 +1166,20 @@ void PlaybackController::doAddTrack(const InstrumentTrackId& instrumentTrackId, 
         m_instrumentTrackIdMap.insert({ instrumentTrackId, trackId });
 
         const bool trackNewlyAdded = projectHadNoAudioSettings || !audioSettings()->trackHasExistingOutputParams(instrumentTrackId);
-        audioSettings()->setTrackInputParams(instrumentTrackId, appliedParams.in, !projectHadNoAudioSettings);
+        // COLLAB: Ploq: the score asked for a sound this app can't load (e.g. Muse Sounds) and the
+        // engine plays a fallback. Keep the score's choice so saving doesn't wipe it.
+        const AudioResourceMeta& appliedMeta = appliedParams.in.resourceMeta;
+        if (originMeta.isValid() && (appliedMeta.type != originMeta.type || appliedMeta.id != originMeta.id)) {
+            LOGI() << "ploq: keeping the score's sound \"" << originMeta.id << "\" for " << instrumentTrackId.instrumentId
+                   << " (not available here; playing " << appliedMeta.id << " instead)";
+            m_keptSoundFallbacks[instrumentTrackId] = appliedMeta;
+            if (originMeta.type == AudioResourceType::MuseSamplerSoundPack) {
+                scheduleMuseSoundsNotice();
+            }
+        } else {
+            m_keptSoundFallbacks.erase(instrumentTrackId);
+            audioSettings()->setTrackInputParams(instrumentTrackId, appliedParams.in, !projectHadNoAudioSettings);
+        }
         audioSettings()->setTrackOutputParams(instrumentTrackId, appliedParams.out, !projectHadNoAudioSettings);
 
         updateSoloMuteStates();
@@ -1355,6 +1377,15 @@ void PlaybackController::subscribeOnAudioParamsChanges()
         });
 
         if (search != m_instrumentTrackIdMap.end()) {
+            // COLLAB: Ploq: the engine re-announcing its fallback for a sound we kept: not a change.
+            const auto kept = m_keptSoundFallbacks.find(search->first);
+            if (kept != m_keptSoundFallbacks.end()) {
+                if (params.resourceMeta.type == kept->second.type && params.resourceMeta.id == kept->second.id) {
+                    return;
+                }
+                m_keptSoundFallbacks.erase(kept); // a new sound picked in the mixer: that one is saved
+            }
+
             const AudioResourceMeta& oldMeta = audioSettings()->trackInputParams(search->first).resourceMeta;
             onAudioResourceChanged(trackId, search->first, oldMeta, params.resourceMeta);
 
@@ -1675,6 +1706,7 @@ void PlaybackController::applyProfile(const SoundProfileName& profileName)
     }
 
     notationPlayback()->removeSoundFlags(notationPlayback()->existingTrackIdSet());
+    m_keptSoundFallbacks.clear(); // COLLAB: Ploq: an explicit profile switch replaces kept sounds too
 
     const InstrumentTrackId& metronomeTrackId = notationPlayback()->metronomeTrackId();
 
@@ -1841,4 +1873,99 @@ muse::Progress PlaybackController::onlineSoundsProcessingProgress() const
 muse::audio::secs_t PlaybackController::playedTickToSecs(int tick) const
 {
     return secs_t(notationPlayback()->playedTickToSec(tick));
+}
+
+// COLLAB: Ploq: Muse Sounds can't play in Ploq (the engine plays a fallback; see doAddTrack). When an
+// opened score asks for Muse Sounds, say so once and offer MuseScore Studio, where it plays properly.
+void PlaybackController::scheduleMuseSoundsNotice()
+{
+    const project::INotationProjectPtr project = globalContext()->currentProject();
+    if (!project) {
+        return;
+    }
+
+    const std::string key = project->path().toStdString() + "|" + project->displayName().toStdString();
+    if (!m_museSoundsNoticedScores.insert(key).second) {
+        return; // already told for this score (every Muse Sounds track ends up here)
+    }
+
+    // Automated QA runs (tools/collab/qa-auto) must never be held up by a dialog.
+    // PLOQ_QA_SHOW_NOTICES=1 (tools/collab/qa-auto/shots.ps1) shows it anyway, to look at it.
+    const bool qaRun = (!qEnvironmentVariableIsEmpty("COLLAB_AUTOBOT") || qEnvironmentVariable("PLOQ_NO_ACTIVATE") == "1")
+                       && qEnvironmentVariable("PLOQ_QA_SHOW_NOTICES") != "1";
+    LOGI() << "ploq: this score uses Muse Sounds; notice " << (qaRun ? "skipped (QA run)" : "scheduled");
+    if (qaRun) {
+        return;
+    }
+
+    // Let the score finish opening first.
+    QTimer::singleShot(1000, &m_ploqTimerContext, [this]() { showMuseSoundsNotice(); });
+}
+
+void PlaybackController::showMuseSoundsNotice()
+{
+    if (!globalContext()->currentProject() || !muse::settings()->value(PLOQ_MUSE_SOUNDS_NOTICE_KEY).toBool()) {
+        return;
+    }
+
+    static constexpr int LISTEN_BUTTON = int(IInteractive::Button::CustomButton) + 1;
+    const IInteractive::ButtonDatas buttons = {
+        IInteractive::ButtonData(LISTEN_BUTTON, muse::trc("playback", "Listen in MuseScore Studio")),
+        interactive()->buttonData(IInteractive::Button::Ok),
+    };
+
+    interactive()->info(muse::trc("playback", "This score uses Muse Sounds"), std::string(ploq::MUSE_SOUNDS_NOTICE), buttons,
+                        int(IInteractive::Button::Ok), IInteractive::Option::WithIcon | IInteractive::Option::WithDontShowAgainCheckBox)
+    .onResolve(this, [this](const IInteractive::Result& res) {
+        if (!res.showAgain()) {
+            muse::settings()->setSharedValue(PLOQ_MUSE_SOUNDS_NOTICE_KEY, muse::Val(false));
+        }
+        if (res.button() == LISTEN_BUTTON) {
+            listenInMuseScoreStudio();
+        }
+    });
+}
+
+// COLLAB: Ploq: save a copy of the score as it is now and open it in MuseScore Studio. A copy, so a
+// shared score's own file (and its collab session) is never touched, and nothing is added to Recent.
+void PlaybackController::listenInMuseScoreStudio()
+{
+    const project::INotationProjectPtr project = globalContext()->currentProject();
+    if (!project) {
+        return;
+    }
+
+    const QString studio = ploq::findMuseScoreStudio();
+    if (studio.isEmpty()) {
+        static constexpr int GET_BUTTON = int(IInteractive::Button::CustomButton) + 1;
+        const IInteractive::ButtonDatas buttons = {
+            interactive()->buttonData(IInteractive::Button::Cancel),
+            IInteractive::ButtonData(GET_BUTTON, muse::trc("playback", "Get MuseScore Studio"), true),
+        };
+        interactive()->info(muse::trc("playback", "MuseScore Studio isn’t installed"),
+                            muse::trc("playback", "To hear your score with Muse Sounds, install MuseScore Studio and Muse Sounds "
+                                                  "(both free), then try again."),
+                            buttons, GET_BUTTON)
+        .onResolve(this, [this](const IInteractive::Result& res) {
+            if (res.button() == GET_BUTTON) {
+                interactive()->openUrl(std::string(ploq::MUSESCORE_DOWNLOAD_URL));
+            }
+        });
+        return;
+    }
+
+    const QString copyPath = ploq::studioCopyPath(project->displayName());
+    const muse::Ret saved = project->save(muse::io::path_t(copyPath), project::SaveMode::SaveCopy, /*createBackup*/ false);
+    if (!saved) {
+        LOGE() << "ploq: couldn't save a copy for MuseScore Studio at " << copyPath << ": " << saved.toString();
+        interactive()->warning(muse::trc("playback", "Couldn’t open your score in MuseScore Studio"),
+                               muse::trc("playback", "Ploq couldn’t save a copy of the score to open there.") + " " + saved.text());
+        return;
+    }
+
+    LOGI() << "ploq: opening " << copyPath << " in " << studio;
+    if (!ploq::openInMuseScoreStudio(studio, copyPath)) {
+        interactive()->warning(muse::trc("playback", "Couldn’t open your score in MuseScore Studio"),
+                               muse::qtrc("playback", "MuseScore Studio didn’t start (%1).").arg(studio).toStdString());
+    }
 }

@@ -30,6 +30,7 @@
 #include <QTimer>
 
 #include "async/async.h"
+#include "collab/collabhooks.h" // COLLAB: save on leave
 #include "defer.h"
 #include "translation.h"
 
@@ -754,6 +755,7 @@ bool ProjectActionsController::closeOpenedProject(bool goToHome)
     }
 
     if (result) {
+        mu::collab::scoreAboutToClose(); // COLLAB: the last one in a shared score saves it on the server
         interactive()->closeAllDialogsSync();
         globalContext()->setCurrentProject(nullptr);
 

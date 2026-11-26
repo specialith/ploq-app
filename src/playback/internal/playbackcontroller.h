@@ -22,6 +22,9 @@
 
 #pragma once
 
+#include <set> // COLLAB: Ploq
+#include <QObject> // COLLAB: Ploq
+
 #include "modularity/ioc.h"
 #include "async/asyncable.h"
 #include "actions/iactionsdispatcher.h"
@@ -256,6 +259,15 @@ private:
     muse::async::Asyncable m_seqAsyncReceiver; //! HACK - see PlaybackController::setupSequenceTracks
 
     InstrumentTrackIdMap m_instrumentTrackIdMap;
+    // COLLAB: Ploq: Muse Sounds notice (once per opened score) and the MuseScore Studio handoff
+    void listenInMuseScoreStudio();
+    void scheduleMuseSoundsNotice();
+    void showMuseSoundsNotice();
+    std::set<std::string> m_museSoundsNoticedScores; // paths: collab reloads reopen a score, notify once
+    QObject m_ploqTimerContext; // COLLAB: Ploq: the delayed notice dies with the controller
+    // COLLAB: Ploq: tracks whose saved sound this app can't load (Muse Sounds, a missing plugin):
+    // the fallback it plays instead, which must never be saved over the score's own choice.
+    std::unordered_map<engraving::InstrumentTrackId, muse::audio::AudioResourceMeta> m_keptSoundFallbacks;
     AuxTrackIdMap m_auxTrackIdMap;
 
     muse::Progress m_loadingProgress;

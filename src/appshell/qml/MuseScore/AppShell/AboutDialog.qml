@@ -31,7 +31,7 @@ import MuseScore.AppShell
 StyledDialogView {
     id: root
 
-    title: qsTrc("appshell/about", "About MuseScore Studio")
+    title: "About Ploq" // COLLAB: was qsTrc("appshell/about", "About MuseScore Studio")
 
     contentHeight: 424
     contentWidth: 480
@@ -59,7 +59,7 @@ StyledDialogView {
                 id: logo
                 Layout.alignment: Qt.AlignHCenter
 
-                source: "resources/mu_logo.svg"
+                source: "qrc:/ploq/ploq_tile.svg" // COLLAB: Ploq logo (was resources/mu_logo.svg)
                 sourceSize: Qt.size(100, 100)
 
                 MouseArea {
@@ -81,10 +81,15 @@ StyledDialogView {
                 spacing: 8
                 Layout.fillWidth: true
 
-                StyledTextLabel {
+                StyledTextLabel { // COLLAB: Ploq name and version, then the MuseScore credit
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: qsTrc("appshell/about", "Version:") + " " + aboutModel.museScoreVersion()
+                    text: "Ploq " + aboutModel.ploqVersion()
                     font: ui.theme.bodyBoldFont
+                }
+
+                StyledTextLabel { // COLLAB: credit (required): Ploq is based on MuseScore Studio
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Based on MuseScore Studio " + aboutModel.museScoreVersion()
                 }
 
                 Row {
@@ -109,7 +114,11 @@ StyledDialogView {
 
             StyledTextLabel {
                 Layout.fillWidth: true
-                text: {
+                // COLLAB: Ploq's site, the MuseScore credit and a no-affiliation note (was MuseScore's links)
+                text: "Visit <a href='https://ploq.app'>ploq.app</a> for new versions and more information.<br>"
+                      + "Ploq is based on <a href='https://musescore.org'>MuseScore Studio</a>, free and open-source music notation software. "
+                      + "Ploq is not made or endorsed by MuseScore Limited or Muse Group."
+                property var upstreamText: {
                     let museScoreUrl = aboutModel.museScoreUrl()
 
                     //: %1 will be a link to the MuseScore website
@@ -123,14 +132,14 @@ StyledDialogView {
                     return line1 + "<br>" + line2
                 }
                 wrapMode: Text.WordWrap
-                maximumLineCount: 3
+                maximumLineCount: 4 // COLLAB: was 3
             }
 
             StyledTextLabel {
                 Layout.fillWidth: true
 
-                text: qsTrc("appshell/about", "For privacy information, see our <a href=\"%1\">privacy policy</a>.")
-                      .arg(aboutModel.museScorePrivacyPolicyUrl().url)
+                // COLLAB: Ploq's own privacy note (was MuseScore's privacy policy link)
+                text: "Ploq sends nothing to Muse Group. Shared scores and your display name are stored on the Ploq server."
 
                 wrapMode: Text.WordWrap
                 maximumLineCount: 3
@@ -138,7 +147,8 @@ StyledDialogView {
 
             StyledTextLabel {
                 Layout.fillWidth: true
-                text: qsTrc("appshell/about", "Copyright © 1999-2026 MuseScore Limited and others.\nPublished under the <a href=\"%1\">GNU General Public License version 3</a>.")
+                // COLLAB: MuseScore's copyright kept (GPL); Ploq's changes credited first
+                text: "Ploq changes " + String.fromCharCode(169) + " 2026 the Ploq authors.<br>" + qsTrc("appshell/about", "Copyright © 1999-2026 MuseScore Limited and others.\nPublished under the <a href=\"%1\">GNU General Public License version 3</a>.")
                       .arg("https://www.gnu.org/licenses/gpl-3.0.html")
                       .replace("\n", "<br>")
 

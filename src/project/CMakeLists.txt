@@ -120,7 +120,7 @@ elseif (OS_IS_WIN)
     )
 endif()
 
-target_link_libraries(project PRIVATE notation)
+target_link_libraries(project PRIVATE notation collab) # COLLAB: scoreAboutToClose() in projectactionscontroller.cpp
 
 if (QT_ADD_CONCURRENT)
     target_link_libraries(project PRIVATE Qt::Concurrent)

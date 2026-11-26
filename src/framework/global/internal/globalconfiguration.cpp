@@ -118,7 +118,8 @@ io::path_t GlobalConfiguration::userBackupPath() const
 
 io::path_t GlobalConfiguration::userDataPath() const
 {
-    static io::path_t p = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/" + QCoreApplication::applicationName();
+    // COLLAB: Ploq shares MuseScore 4's Documents folder (Scores, Plugins, Styles, Templates, SoundFonts) instead of Documents\<app name>
+    static io::path_t p = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/MuseScore4";
     return p;
 }
 

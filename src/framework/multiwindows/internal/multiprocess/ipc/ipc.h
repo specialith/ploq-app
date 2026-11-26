@@ -35,9 +35,10 @@ class QLocalSocket;
 
 namespace muse::ipc {
 #ifdef MUSE_APP_UNSTABLE
-static const QString SERVER_NAME("musescore-app-ipc-" MUSE_APP_VERSION_MAJOR "-development");
+// COLLAB: Ploq has its own channel, so it never exchanges files/windows with a running MuseScore (was "musescore-app-ipc-<major>")
+static const QString SERVER_NAME("ploq-app-ipc-development");
 #else
-static const QString SERVER_NAME("musescore-app-ipc-" MUSE_APP_VERSION_MAJOR);
+static const QString SERVER_NAME("ploq-app-ipc"); // COLLAB: see above
 #endif
 
 using ID = QString;

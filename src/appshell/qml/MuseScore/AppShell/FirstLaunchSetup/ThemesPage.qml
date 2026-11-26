@@ -31,7 +31,7 @@ import MuseScore.Preferences
 Page {
     id: root
 
-    title: qsTrc("appshell/gettingstarted", "Welcome to MuseScore Studio")
+    title: "Welcome to Ploq" // COLLAB: was qsTrc("appshell/gettingstarted", "Welcome to MuseScore Studio")
     explanation: qsTrc("appshell/gettingstarted", "Let’s get started by choosing a theme.")
 
     titleContentSpacing: model.isFollowSystemThemeAvailable ? 24 : 28
@@ -138,6 +138,18 @@ Page {
             onClicked: {
                 model.highContrastEnabled = !checked
             }
+        }
+
+        // COLLAB: Ploq: say up front that Muse Sounds don't play here (the same line is on ploq.app)
+        StyledTextLabel {
+            Layout.alignment: Qt.AlignCenter
+            Layout.preferredWidth: 440 // two lines; the theme samples are too narrow for it
+            Layout.topMargin: 4
+
+            text: "Muse Sounds playback isn't available in Ploq. Open your score in MuseScore Studio to hear it with Muse Sounds."
+            wrapMode: Text.WordWrap
+            horizontalAlignment: Text.AlignHCenter
+            opacity: 0.75
         }
     }
 }

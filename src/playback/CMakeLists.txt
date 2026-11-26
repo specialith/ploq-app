@@ -30,6 +30,8 @@ target_sources(playback PRIVATE
 
     internal/playbackcontroller.cpp
     internal/playbackcontroller.h
+    internal/ploqstudiohandoff.cpp
+    internal/ploqstudiohandoff.h
     internal/onlinesoundscontroller.cpp
     internal/onlinesoundscontroller.h
     internal/playbackuiactions.cpp

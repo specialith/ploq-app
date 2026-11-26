@@ -36,7 +36,8 @@ void NotationToolBarModel::load()
 
     muse::actions::ActionCodeList itemsCodes = {
         "parts",
-        "toggle-mixer"
+        "toggle-mixer",
+        "ploq-share" // COLLAB: Ploq: the Share button (src/collab/internal/sharecontroller.h)
     };
 
     ToolBarItemList items;

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- COLLAB: Ploq identity (was Muse.MuseScore.@MUSE_APP_NAME_MACHINE_READABLE@) -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"
   xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
-  <assemblyIdentity type="win32" name="Muse.MuseScore.@MUSE_APP_NAME_MACHINE_READABLE@"
+  <assemblyIdentity type="win32" name="Ploq.Ploq"
     version="@MUSE_APP_VERSION@.0" />
 
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">

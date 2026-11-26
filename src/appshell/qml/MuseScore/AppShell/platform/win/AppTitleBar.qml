@@ -90,7 +90,7 @@ Rectangle {
             TextMetrics {
                 id: titleTextmetrics
 
-                text: qsTrc("appshell", "MuseScore Studio")
+                text: "Ploq" // COLLAB: rebrand (title bar width measurement)
                 font: titleLabel.font
                 elide: Qt.ElideRight
                 elideWidth: titleLabel.width

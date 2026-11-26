@@ -180,6 +180,8 @@ FocusScope {
             }
 
             StyledTabButton {
+                visible: false // COLLAB: Ploq: no MuseScore.com online scores
+                width: 0
                 text: qsTrc("project", "My online scores")
 
                 navigation.name: "MyOnlineScores"
@@ -376,6 +378,7 @@ FocusScope {
             navigation.panel: navBottomPanel
             navigation.column: 1
 
+            visible: false // COLLAB: Ploq: no MuseScore.com score manager
             minWidth: 216
             text: qsTrc("project", "Score manager (online)")
 

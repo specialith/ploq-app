@@ -36,6 +36,7 @@ using namespace muse::update;
 
 bool MuseSoundsCheckUpdateScenario::needCheckForUpdate() const
 {
+    return false; // COLLAB: Ploq: no Muse Sounds update check (Muse Group service; when blocked it also held back Ploq's own update dialog)
     return configuration()->needCheckForMuseSoundsUpdate();
 }
 

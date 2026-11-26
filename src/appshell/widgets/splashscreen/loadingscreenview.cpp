@@ -29,18 +29,20 @@
 
 #include "translation.h"
 
+#include <QApplication> // COLLAB: qApp->property("ploqVersion")
+
 using namespace mu::appshell;
 
-static const QString imagePath(":/resources/LoadingScreen.svg");
+static const QString imagePath(":/ploq/ploq_loading.svg"); // COLLAB: Ploq loading screen (src/collab resources)
 
 static constexpr QSize loadingScreenSize(800, 380);
 
 static const QColor messageColor("#F1F1EE");
 
-static const QString website("www.musescore.org");
+static const QString website("ploq.app"); // COLLAB: was www.musescore.org
 static constexpr QRectF websiteRect(loadingScreenSize.width() - 48, loadingScreenSize.height() - 48, 0, 0);
 
-static const QColor versionNumberColor("#19F3FF");
+static const QColor versionNumberColor("#9AA0A8"); // COLLAB: was MuseScore cyan
 static constexpr qreal versionNumberSpacing = 5.0;
 
 LoadingScreenView::LoadingScreenView(QWidget* parent)
@@ -90,5 +92,5 @@ void LoadingScreenView::draw(QPainter* painter)
 
     painter->drawText(websiteRect.translated(0.0, -websiteBoundingRect.height() - versionNumberSpacing),
                       Qt::AlignBottom | alignment | Qt::TextDontClip,
-                      muse::qtrc("appshell", "Version %1").arg(application()->fullVersion().toString()));
+                      muse::qtrc("appshell", "Version %1").arg(qApp->property("ploqVersion").toString())); // COLLAB: Ploq version
 }

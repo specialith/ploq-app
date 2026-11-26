@@ -132,9 +132,9 @@ Promise<Ret> AppUpdateScenario::processUpdateError(int errorCode)
 
 Promise<IInteractive::Result> AppUpdateScenario::showNoUpdateMsg()
 {
-    const QString str = muse::qtrc("update", "You already have the latest version of MuseScore Studio. "
-                                             "Please visit <a href=\"%1\">MuseScore.org</a> for news on what’s coming next.")
-                        .arg(QString::fromStdString(configuration()->museScoreUrl()));
+    // COLLAB: Ploq's text (was "...latest version of MuseScore Studio. Please visit MuseScore.org...")
+    const QString str = QString("You already have the latest version of Ploq. "
+                                "Visit <a href=\"https://ploq.app\">ploq.app</a> for news on what’s coming next.");
 
     const IInteractive::Text text(str.toStdString(), IInteractive::TextFormat::RichText);
     const IInteractive::ButtonData okBtn = interactive()->buttonData(IInteractive::Button::Ok);
@@ -173,8 +173,9 @@ Promise<Ret> AppUpdateScenario::showReleaseInfo(const ReleaseInfo& info)
 
 Promise<IInteractive::Result> AppUpdateScenario::showServerErrorMsg()
 {
-    return interactive()->error(muse::trc("update", "Cannot connect to server"),
-                                muse::trc("update", "Sorry - please try again later"));
+    // COLLAB: Ploq: also shown when a download fails its signature/SHA-256 check (was "Cannot connect to server")
+    return interactive()->error("Couldn’t update Ploq",
+                                "The update couldn’t be downloaded, or it didn’t pass Ploq’s safety checks, so nothing was installed. Please try again later.");
 }
 
 Promise<Ret> AppUpdateScenario::downloadRelease()
@@ -188,8 +189,9 @@ Promise<Ret> AppUpdateScenario::downloadRelease()
 
 Promise<Ret> AppUpdateScenario::askToCloseAppAndCompleteInstall(const io::path_t& installerPath)
 {
-    const std::string info = muse::trc("update", "MuseScore Studio needs to close to complete the installation. "
-                                                 "If you have any unsaved changes, you will be prompted to save them before MuseScore Studio closes.");
+    // COLLAB: Ploq wording (was "MuseScore Studio needs to close...")
+    const std::string info = "Ploq needs to close to install the update. "
+                             "If you have any unsaved changes, you will be asked to save them first. Ploq reopens when the update is done.";
     const int closeBtn = int(IInteractive::Button::CustomButton) + 1;
     const IInteractive::ButtonDatas buttons = {
         interactive()->buttonData(IInteractive::Button::Cancel),

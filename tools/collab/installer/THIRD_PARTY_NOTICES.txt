@@ -1,0 +1,65 @@
+Ploq - third-party notices
+==========================
+
+Ploq is free software under the GNU General Public License version 3 (see
+LICENSE.txt in this folder). It is a modified version of MuseScore Studio and
+includes the components below, each under its own licence. This list covers
+what Ploq adds or ships with; the MuseScore Studio source code lists further
+components in its thirdparty/ and fonts/ folders.
+
+"Ploq" and the Ploq logo are marks of the Ploq authors. The GPL does not grant
+any right to use them (GPLv3 section 7e).
+
+
+MuseScore Studio
+----------------
+Copyright (C) 1999-2026 MuseScore Limited and others.
+Licensed under the GNU General Public License version 3, with an exception
+for fonts embedded in documents (see LICENSE.txt). Ploq is not made or
+endorsed by MuseScore Limited or Muse Group. "MuseScore" is a trademark of
+MuseScore Limited.
+
+
+Inter (typeface for collaborators' name tags)
+---------------------------------------------
+Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter).
+Licensed under the SIL Open Font License, Version 1.1. The full licence text is
+in Inter-LICENSE.txt in this folder.
+
+
+MS Basic SoundFont (sound\MS Basic.sf3)
+---------------------------------------
+FluidR3 (original version) by Frank Wen, Copyright (c) 2000-02.
+Mono conversion (FluidR3Mono) by Michael Cowgill, Copyright (c) 2014-17.
+Adaptation by S. Christian Collins, Copyright (c) 2018-19, and others named in
+the licence file. Shared under the MIT licence. The full text, with the
+sources of its samples, is in sound\MS Basic_License.md.
+
+
+Music and text fonts from MuseScore Studio
+------------------------------------------
+Leland and Edwin (MuseScore Limited), Bravura and Petaluma (Steinberg Media
+Technologies GmbH), Campania, MuseJazz, Finale Maestro and Finale Broadway
+are licensed under the SIL Open Font License, Version 1.1. Other fonts in the
+MuseScore Studio source carry their own licence files there.
+
+
+Qt
+--
+Qt 6 (The Qt Company Ltd. and other contributors), used under the GNU Lesser
+General Public License version 3. The Qt libraries are the separate Qt6*.dll
+files next to Ploq.exe and can be replaced with compatible builds of your own.
+Source code: https://download.qt.io/
+
+
+Libraries built into MuseScore Studio (and so into Ploq)
+--------------------------------------------------------
+- kors_async, kors_logger, kors_modularity, kors_msgpack, kors_profiler,
+  kors_rpcqueue: Copyright (c) 2020-2025 Igor Korsukov, MIT licence.
+- utfcpp: Boost Software License 1.0.
+- pugixml (Arseny Kapoulkine): MIT licence.
+- picojson (Cybozu Labs, Kazuho Oku): 2-clause BSD licence.
+- dtl, the Diff Template Library: Copyright (c) 2015 Tatsuhiko Kubo, BSD licence.
+- intervaltree: Copyright (c) 2011 Erik Garrison, MIT licence.
+- rtf2html: GNU Lesser General Public License version 2.1.
+The full licence texts are in the MuseScore Studio source, next to each library.

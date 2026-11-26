@@ -68,6 +68,11 @@ private:
 
     secs_t m_playbackPosition = 0.0;
     async::Channel<secs_t> m_playbackPositionChanged;
+
+    // COLLAB: init()'s replies can arrive after this player is gone (a score
+    // closed right after opening, while the audio engine is still starting);
+    // they check this first instead of touching a destroyed player.
+    std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 };
 }
 

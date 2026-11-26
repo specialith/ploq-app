@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Ploq installer (WiX 3). Built by build_installer.ps1; not part of the CMake build.
+
+  What it does (and on purpose does NOT do):
+  - Installs Ploq for the current Windows user, no admin prompt:
+      %LOCALAPPDATA%\Programs\Ploq\bin\Ploq.exe
+    with LICENSE.txt, THIRD_PARTY_NOTICES.txt and Inter-LICENSE.txt next to bin\
+    (staged by build_installer.ps1, collected into PloqFiles by heat).
+  - Start menu shortcut, uninstaller in Settings > Apps (Add/Remove Programs).
+  - Registers the ploq:// link handler for this user (HKCU) the safe way (p8):
+      "<install>\bin\Ploq.exe" (the ploq-link switch) "%1"
+    Ploq.exe (main.cpp, ploqHandleLink) treats everything after that switch as
+    the link text, accepts only exact link shapes and passes no other argument
+    on, so a link can't add command-line options. No PowerShell console, never
+    cmd.exe / a .bat file. Removes the old, vulnerable
+    collabscore:// handler.
+  - Does NOT register .mscz/.mscx or any other file type, and does NOT touch
+    the musescore:// scheme or any MuseScore registry key / folder.
+  - Upgrades: a newer Ploq-x.y.z.msi replaces the installed one (MajorUpgrade).
+    UpgradeCode is Ploq's own forever; never MuseScore's.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+
+  <?define UpgradeCode="C0B4DC9D-0D58-42CA-A5AA-1624A73F5087"?>
+
+  <Product Id="*"
+           Name="Ploq"
+           Language="1033"
+           Version="$(var.PloqVersion)"
+           Manufacturer="Ploq"
+           UpgradeCode="$(var.UpgradeCode)">
+
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" InstallPrivileges="limited"
+             Description="Ploq $(var.PloqVersion) - real-time collaboration, based on MuseScore Studio"
+             Comments="Based on MuseScore Studio (GPL-3.0). Not made or endorsed by MuseScore Limited or Muse Group." />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <MajorUpgrade Schedule="afterInstallInitialize" AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Ploq is already installed. Setup will now exit." />
+
+    <!-- Settings > Apps entry -->
+    <Icon Id="Ploq.ico" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="Ploq.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://ploq.app" />
+    <Property Id="ARPHELPLINK" Value="https://ploq.app" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- UI: license page, then install; "Launch Ploq" checkbox at the end -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <UI>
+      <UIRef Id="WixUI_Minimal" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchPloq">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed</Publish>
+    </UI>
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Ploq" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[INSTALLDIR]bin\Ploq.exe" />
+    <CustomAction Id="LaunchPloq" BinaryKey="WixCA" DllEntry="WixShellExec" Impersonate="yes" />
+
+    <!-- Auto-update: Ploq runs "msiexec /i Ploq-x.y.z.msi /passive PLOQ_RELAUNCH=1" (progress bar
+         only, after checking the signature/hash); reopen Ploq when the update is done. -->
+    <CustomAction Id="RelaunchPloq" Directory="INSTALLDIR" ExeCommand="&quot;[INSTALLDIR]bin\Ploq.exe&quot;"
+                  Return="asyncNoWait" Impersonate="yes" />
+    <InstallExecuteSequence>
+      <Custom Action="RelaunchPloq" After="InstallFinalize">PLOQ_RELAUNCH = "1" AND NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsDir" Name="Programs">
+          <Directory Id="INSTALLDIR" Name="Ploq" />
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <!-- Shortcut + link handler. Per-user components need an HKCU key path. -->
+      <Component Id="PloqShell" Guid="DA2949A6-B544-4705-8A45-D9BB976A74BA">
+        <RegistryValue Root="HKCU" Key="Software\Ploq\Installer" Name="InstallDir" Type="string" Value="[INSTALLDIR]" KeyPath="yes" />
+
+        <Shortcut Id="StartMenuPloq" Directory="ProgramMenuFolder" Name="Ploq"
+                  Description="Real-time collaboration, based on MuseScore Studio"
+                  Target="[INSTALLDIR]bin\Ploq.exe" WorkingDirectory="INSTALLDIR" Icon="Ploq.ico" />
+
+        <!-- ploq:// links: Ploq.exe with its ploq-link switch (validates the link as text; see main.cpp) -->
+        <RegistryKey Root="HKCU" Key="Software\Classes\ploq" ForceDeleteOnUninstall="yes">
+          <RegistryValue Type="string" Value="URL:Ploq link" />
+          <RegistryValue Name="URL Protocol" Type="string" Value="" />
+          <RegistryValue Key="DefaultIcon" Type="string" Value="[INSTALLDIR]bin\Ploq.exe,0" />
+          <RegistryValue Key="shell\open\command" Type="string"
+                         Value="&quot;[INSTALLDIR]bin\Ploq.exe&quot; --ploq-link &quot;%1&quot;" />
+        </RegistryKey>
+
+        <!-- Pre-rename handler: older packages pointed it at a vulnerable Join.bat -->
+        <RemoveRegistryKey Root="HKCU" Key="Software\Classes\collabscore" Action="removeOnInstall" />
+
+        <!-- Only ever removes EMPTY folders (no recursive delete: a wrong path could never wipe anything) -->
+        <RemoveFolder Id="RemoveInstallDirIfEmpty" Directory="INSTALLDIR" On="uninstall" />
+        <RemoveFolder Id="RemoveProgramsDirIfEmpty" Directory="ProgramsDir" On="uninstall" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Ploq" Title="Ploq" Level="1">
+      <ComponentRef Id="PloqShell" />
+      <ComponentGroupRef Id="PloqFiles" />
+    </Feature>
+  </Product>
+</Wix>
