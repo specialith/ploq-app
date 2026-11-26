@@ -63,4 +63,6 @@ Ploq is free software under the GNU General Public License version 3, like MuseS
 [LICENSE.txt](LICENSE.txt). Third-party components keep their own licenses (see `thirdparty/`
 and `tools/collab/installer/THIRD_PARTY_NOTICES.txt`).
 
+The license covers the code, not the Ploq name or logo: see [TRADEMARKS.md](TRADEMARKS.md).
+
 MuseScore and Muse Sounds are trademarks of Muse Group. Muse Sounds are not part of Ploq.
