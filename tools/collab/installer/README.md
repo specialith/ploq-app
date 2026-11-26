@@ -72,17 +72,61 @@ Output: `builds\installer\Ploq-<version>.msi`. The version comes from `src\colla
 - To change keys: ship one update signed with the OLD key whose app contains the NEW public key
   (`RELEASE_KEY_X/Y` in `ploqupdate.cpp`); sign everything after that with the new key.
 
-## Code signing (when the certificate arrives)
+## Code signing (Azure Artifact Signing)
 
-Right now the installer and Ploq.exe are unsigned, so Windows SmartScreen will warn ("Windows
-protected your PC" > More info > Run anyway) until the files are signed and have built
-reputation. To turn signing on:
+Unsigned, Windows SmartScreen warns ("Windows protected your PC" > More info > Run anyway).
+Ploq signs with **Azure Artifact Signing** (formerly Trusted Signing): Microsoft verifies
+Ploq, LLC once, then issues a fresh 3-day certificate for every signing, timestamped by
+Microsoft so signatures stay valid after it expires. `build_installer.ps1` signs through
+`sign.ps1`, and only files that aren't already signed (Qt and the runtime ship signed by
+their makers), so a release costs 2 signatures: `Ploq.exe` and the `.msi`.
 
-1. Install the certificate (or plug in its USB token).
-2. Set `PLOQ_SIGN_CERT_THUMBPRINT` to its thumbprint (see `sign.ps1`). `build_installer.ps1`
-   then signs Ploq.exe, its DLLs and the `.msi`, with a timestamp.
-3. Optionally make the updater insist on it: define `PLOQ_REQUIRE_AUTHENTICODE` in
-   `src/collab/CMakeLists.txt` (`verifyAuthenticode` in `ploqupdate.cpp`).
+Eligibility (Microsoft Learn, 2026-11): organizations in the US (and 11 other places) or
+individuals in the US/Canada; no minimum company age is stated; a **paid** Azure
+subscription (not free/trial). Identity validation takes 1 to 30 business days and is done
+in the Azure portal. SmartScreen reputation still builds up with downloads after signing.
+
+### One-time setup
+
+1. **Azure**: an Azure account with a pay-as-you-go subscription (portal.azure.com).
+2. **Artifact Signing account**: in the portal, create an *Artifact Signing account*
+   (Basic plan), e.g. name `ploq-signing`, region *East US*. Note the region: it decides the
+   endpoint (East US = `https://eus.codesigning.azure.net`; others in `sign.ps1`'s sources
+   on Microsoft Learn, "how-to-signing-integrations").
+3. **Roles**: on that account, give yourself *Artifact Signing Identity Verifier* (to request
+   validation) and *Artifact Signing Certificate Profile Signer* (to sign).
+4. **Identity validation** (account > Identity validations > New > Public): legal name
+   "Ploq, LLC", the business identifier (EIN), address, website `https://ploq.app`, a primary
+   email at `@ploq.app` and a secondary email. Microsoft may ask for the articles of
+   organization (issued within 12 months) and a domain invoice.
+5. **Certificate profile**, once validation is approved: account > Certificate profiles >
+   Create > *Public Trust*, pick the validation, e.g. name `ploq`.
+6. **This PC**: install the Azure CLI (`winget install -e --id Microsoft.AzureCLI`), then
+   `az login`. Create `%USERPROFILE%\.ploq\artifact-signing.json`:
+
+   ```json
+   {
+     "Endpoint": "https://eus.codesigning.azure.net",
+     "CodeSigningAccountName": "ploq-signing",
+     "CertificateProfileName": "ploq",
+     "ExcludeCredentials": ["ManagedIdentityCredential", "WorkloadIdentityCredential",
+       "EnvironmentCredential", "SharedTokenCacheCredential", "VisualStudioCredential",
+       "VisualStudioCodeCredential", "AzurePowerShellCredential", "AzureDeveloperCliCredential",
+       "InteractiveBrowserCredential"]
+   }
+   ```
+
+   (`ExcludeCredentials` leaves only the Azure CLI sign-in, so it never tries anything else.)
+
+That's all: the next `build_installer.ps1` signs. `sign.ps1` fetches Microsoft's signing client
+(`Microsoft.ArtifactSigning.Client` **1.0.146**, the newest on .NET 8; 1.0.151+ needs the .NET 10
+runtime, without which signtool crashes silently) into `%USERPROFILE%\tools\artifact-signing`,
+checks it's signed by Microsoft, signs with SignTool 10.0.22621.755+, and verifies every
+signature. A certificate in the Windows store still works instead: `PLOQ_SIGN_CERT_THUMBPRINT`.
+
+Once releases are signed, make the updater insist on it: define `PLOQ_REQUIRE_AUTHENTICODE`
+in `src/collab/CMakeLists.txt` (`verifyAuthenticode` in `ploqupdate.cpp`). Only once signing works:
+a build with it refuses every update that isn't signed.
 
 ## Testing locally
 
