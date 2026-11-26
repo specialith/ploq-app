@@ -88,7 +88,7 @@ void offerCrashReportIfAny(QObject* ctx)
         box.setText(QObject::tr("Ploq crashed the last time you used it. Sorry about that."));
         box.setInformativeText(QObject::tr(
                                    "It saved a crash report on this computer. If you send it to us, we can see what went wrong and fix it.\n\n"
-                                   "Send it privately, for example by replying to any email from Ploq, not in a public post: "
+                                   "Email it to support@ploq.app rather than posting it publicly: "
                                    "it can contain bits of what Ploq was doing at the time.\n\n"
                                    "The report is %1 in the folder that opens.").arg(name));
         QPushButton* open = box.addButton(QObject::tr("Open folder"), QMessageBox::AcceptRole);

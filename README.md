@@ -51,6 +51,10 @@ setx COLLAB_SERVER "https://ploq-server.your-name.workers.dev"
 
 then restart Ploq. Development builds stay offline unless `COLLAB_SERVER` is set.
 
+## Help
+
+Questions or problems with Ploq: email support@ploq.app.
+
 ## Contributing
 
 Bug reports and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Please report
