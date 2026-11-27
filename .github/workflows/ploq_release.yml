@@ -24,6 +24,9 @@ name: 'Ploq release'
 on:
   push:
     tags: ['v*']
+    # Every publish to main gets the full build too (no release), so a release is only ever tagged on a
+    # commit that has already built here: the tagged run repeats a build that is known to work.
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -35,6 +38,9 @@ concurrency:
 
 jobs:
   windows:
+    # Main-branch builds run in the public repo only (free there); the private dev repo builds only when
+    # asked (Run workflow) or for a tag.
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || github.repository == 'specialith/ploq-app'
     runs-on: windows-2025
     timeout-minutes: 360
     permissions:
@@ -81,6 +87,10 @@ jobs:
             "list(APPEND CONFIGURE_ARGS -G Ninja)"
             "list(APPEND CONFIGURE_ARGS -DMUSE_ENABLE_UNIT_TESTS=OFF)"
             "list(APPEND CONFIGURE_ARGS -DMUSE_APP_BUILD_MODE=release -DMUE_RUN_WINDEPLOYQT=ON)"
+            "# Short build path (D:/b/w): under D:/a/ploq-app/ploq-app/builds/<long folder name> MuseScore's"
+            "# deepest object paths went past 260 characters (MSVC C1083: Cannot open compiler generated file)."
+            "set(ALL_BUILDS_PATH D:/b)"
+            "set(BUILD_FOLDER w)"
           ) | Set-Content -Encoding utf8 build_overrides.cmake
           Get-Content build_overrides.cmake
 
@@ -92,7 +102,10 @@ jobs:
         shell: pwsh
         run: |
           $zip = "$env:RUNNER_TEMP\wix314-binaries.zip"
-          Invoke-WebRequest -Uri 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip' -OutFile $zip
+          foreach ($try in 1..5) {
+            try { Invoke-WebRequest -Uri 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip' -OutFile $zip; break }
+            catch { if ($try -eq 5) { throw }; Write-Host "WiX download failed ($_), retrying"; Start-Sleep -Seconds (10 * $try) }
+          }
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
           if ($hash -ne '6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31') { throw "WiX download has the wrong SHA-256: $hash" }
           Expand-Archive $zip -DestinationPath "$env:USERPROFILE\tools\wix314" -Force
@@ -100,7 +113,7 @@ jobs:
       - name: Installer
         shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File tools\collab\installer\build_installer.ps1
+          powershell -ExecutionPolicy Bypass -File tools\collab\installer\build_installer.ps1 -InstallDir "D:\b\w\install"
           if ($LASTEXITCODE -ne 0) { throw "build_installer.ps1 failed ($LASTEXITCODE)" }
           $msi = "builds\installer\Ploq-$env:PLOQ_VERSION.msi"
           if (-not (Test-Path $msi)) { throw "$msi was not built" }
@@ -146,7 +159,7 @@ jobs:
         run: sha256sum -c SHA256SUMS.txt
 
       - name: Attest the installer
-        if: github.event.repository.visibility == 'public'
+        if: github.ref_type == 'tag' && github.event.repository.visibility == 'public'
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: dist/Ploq-${{ env.PLOQ_VERSION }}.msi
