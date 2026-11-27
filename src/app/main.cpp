@@ -36,6 +36,12 @@
 #include "appfactory.h"
 #include "collab/ploqapp.h" // COLLAB: Ploq identity + first launch
 #include "collab/ploqcrashreport.h" // COLLAB: Ploq: "Ploq closed unexpectedly" on the next start
+#ifdef Q_OS_LINUX
+#include "collab/ploqlinux.h" // COLLAB: Ploq: ploq:// links on Linux
+#endif
+#ifdef Q_OS_MACOS
+#include "collab/ploqmac.h" // COLLAB: Ploq: ploq:// links on macOS
+#endif
 #include "internal/commandlineparser.h"
 #include "global/iapplication.h"
 
@@ -44,7 +50,7 @@
 
 #include "log.h"
 
-#ifndef MUSE_MODULE_DIAGNOSTICS_CRASHPAD_CLIENT
+#if !defined(MUSE_MODULE_DIAGNOSTICS_CRASHPAD_CLIENT) && !defined(Q_OS_MACOS) // COLLAB: not used on macOS (see main)
 static void crashCallback(int signum)
 {
     const char* signame = "UNKNOWN SIGNAME";
@@ -61,6 +67,35 @@ static void crashCallback(int signum)
     }
     LOGE() << "Oops! Application crashed with signal: [" << signum << "] " << signame << "-" << sigdescript;
     exit(EXIT_FAILURE);
+}
+
+#endif
+
+// COLLAB: Ploq (macOS/Linux): PLOQ_BACKTRACE=1 prints the crashing thread's stack to stderr, for crashes in
+// runs where no debugger or system crash report is at hand (e.g. started over SSH). Addresses can be turned
+// into names with `atos` (macOS) or `addr2line` (Linux). Off unless the variable is set.
+#if defined(Q_OS_MACOS) || defined(Q_OS_LINUX)
+#include <execinfo.h>
+#include <unistd.h>
+static void ploqBacktraceHandler(int signum)
+{
+    void* frames[64];
+    const int n = backtrace(frames, 64);
+    char head[64];
+    const int len = snprintf(head, sizeof(head), "ploq: crashed with signal %d, stack:\n", signum);
+    write(STDERR_FILENO, head, len > 0 ? len : 0);
+    backtrace_symbols_fd(frames, n, STDERR_FILENO);
+    signal(signum, SIG_DFL);
+    raise(signum);
+}
+
+static void ploqInstallBacktraceIfAsked()
+{
+    if (qEnvironmentVariable("PLOQ_BACKTRACE") == "1") {
+        for (int s : { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT }) {
+            signal(s, ploqBacktraceHandler);
+        }
+    }
 }
 
 #endif
@@ -301,8 +336,19 @@ int main(int argc, char** argv)
         }
     }
 #endif
+#ifdef Q_OS_LINUX
+    {
+        // COLLAB: Ploq: ploq:// links on Linux (desktop entry Exec=... %u), same link shapes (src/collab/ploqlinux.cpp)
+        const int linkResult = mu::collab::ploq::linuxHandleLinkArgs(argc, argv);
+        if (linkResult >= 0) {
+            return linkResult;
+        }
+    }
+#endif
 
-#ifndef MUSE_MODULE_DIAGNOSTICS_CRASHPAD_CLIENT
+#if !defined(MUSE_MODULE_DIAGNOSTICS_CRASHPAD_CLIENT) && !defined(Q_OS_MACOS) // COLLAB: Ploq: macOS's own crash
+    // reporter writes a full report (~/Library/Logs/DiagnosticReports) and offers "Report…"; the handler below
+    // would swallow the crash into a one-line log first.
 #ifdef Q_OS_WIN
     if (!ploqInstallCrashDump()) // COLLAB: Ploq: the signal handlers would swallow the crash before the dump
 #endif
@@ -311,6 +357,9 @@ int main(int argc, char** argv)
         signal(SIGILL, crashCallback);
         signal(SIGFPE, crashCallback);
     }
+#endif
+#if defined(Q_OS_MACOS) || defined(Q_OS_LINUX)
+    ploqInstallBacktraceIfAsked(); // COLLAB: Ploq (after the handlers above, so it wins when asked for)
 #endif
 
     // ====================================================
@@ -370,7 +419,7 @@ int main(int argc, char** argv)
 #ifndef MUSE_APP_INSTALL_SUFFIX
 #define MUSE_APP_INSTALL_SUFFIX ""
 #endif
-    QGuiApplication::setDesktopFileName("org.musescore.MuseScore" MUSE_APP_INSTALL_SUFFIX);
+    QGuiApplication::setDesktopFileName("app.ploq.Ploq"); // COLLAB: Ploq's desktop entry (was "org.musescore.MuseScore" MUSE_APP_INSTALL_SUFFIX)
 #endif
 
     using namespace muse;
@@ -417,6 +466,9 @@ int main(int argc, char** argv)
 #endif
 
     mu::collab::ploq::onAppCreated(); // COLLAB: Ploq version + first-launch settings (before settings load)
+#ifdef Q_OS_MACOS
+    mu::collab::ploq::macInstallLinkHandler(); // COLLAB: ploq:// links arrive as "open URL" events (src/collab/ploqmac.cpp)
+#endif
 
     AppFactory f;
     std::shared_ptr<muse::IApplication> app = f.newApp(opt);

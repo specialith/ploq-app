@@ -173,8 +173,15 @@ void CollabAccount::load()
 void CollabAccount::save()
 {
     const bool stored = credentials::write(credentialTarget(m_profile), m_token);
+#if defined(Q_OS_LINUX) || defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    // The credential store (Credential Manager, Keychain, libsecret keyring) or nothing: if saving there fails,
+    // the sign-in lasts until Ploq closes. Never the plain-text settings file.
+    Q_UNUSED(stored);
+    muse::settings()->setSharedValue(key(m_profile, "token"), Val(QString()));
+#else
     // Plain-text fallback only where there's no credential store.
     muse::settings()->setSharedValue(key(m_profile, "token"), Val(stored ? QString() : m_token));
+#endif
     muse::settings()->setSharedValue(key(m_profile, "userId"), Val(m_userId));
     muse::settings()->setSharedValue(key(m_profile, "name"), Val(m_name));
 }

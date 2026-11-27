@@ -90,6 +90,26 @@ set_source_files_properties(internal/credentialstore.cpp ploqupdate.cpp PROPERTI
 if (WIN32)
     target_link_libraries(collab PRIVATE Advapi32) # CredReadW / CredWriteW
     target_link_libraries(collab PRIVATE Bcrypt Wintrust) # update signature check (ploqupdate.cpp)
+elseif (APPLE)
+    target_link_libraries(collab PRIVATE "-framework Security" "-framework CoreFoundation") # Keychain, update signature check
+    target_sources(collab PRIVATE ploqmac.cpp ploqmac.h) # ploq:// links ("open URL" events)
+endif()
+
+# Linux: ploq:// links, the keyring (libsecret) and the update signature check (libgcrypt).
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(PLOQ_LIBSECRET REQUIRED libsecret-1) # apt install libsecret-1-dev
+    pkg_check_modules(PLOQ_GCRYPT REQUIRED libgcrypt)      # apt install libgcrypt20-dev
+    target_sources(collab PRIVATE ploqlinux.cpp ploqlinux.h internal/credentialstore_libsecret.cpp)
+    # glib's headers (libsecret) use "signals" as a name, which Qt (and so the precompiled header) defines as a macro.
+    set_source_files_properties(ploqlinux.cpp internal/credentialstore_libsecret.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+    list(REMOVE_ITEM PLOQ_LIBSECRET_INCLUDE_DIRS /usr/include) # as -isystem it breaks the C++ headers' #include_next
+    set_source_files_properties(internal/credentialstore_libsecret.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON
+        INCLUDE_DIRECTORIES "${PLOQ_LIBSECRET_INCLUDE_DIRS}")
+    target_compile_definitions(collab PRIVATE PLOQ_HAVE_LIBSECRET)
+    # Full library paths, not pkg-config's imported targets: the app links our static lib and
+    # would have to see those targets too (and their -pthread would disable the module's PCH).
+    target_link_libraries(collab PRIVATE ${PLOQ_LIBSECRET_LINK_LIBRARIES} ${PLOQ_GCRYPT_LINK_LIBRARIES})
 endif()
 
 # The Share dialog (QML module Ploq.Collab, linked into the app with collab:

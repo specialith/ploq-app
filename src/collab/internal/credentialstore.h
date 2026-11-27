@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  *
  * Collab fork — keep the sign-in token in the OS credential store (Windows
- * Credential Manager), not in MuseScore's plain-text settings file.
+ * Credential Manager, the macOS Keychain), not in MuseScore's plain-text settings file.
  */
 #pragma once
 

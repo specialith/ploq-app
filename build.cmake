@@ -172,7 +172,7 @@ fn__set_default(INSTALL_PATH "install") # relative to BUILD_PATH
 if(WIN32)
     fn__set_default(MSCORE_EXECUTABLE "bin/Ploq.exe") # COLLAB: Ploq executable name
 elseif(APPLE)
-    fn__set_default(MSCORE_EXECUTABLE "mscore.app/Contents/MacOS/mscore")
+    fn__set_default(MSCORE_EXECUTABLE "Ploq.app/Contents/MacOS/Ploq") # COLLAB: was mscore.app/.../mscore
 else()
     fn__set_default(MSCORE_EXECUTABLE "bin/mscore")
 endif()

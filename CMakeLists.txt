@@ -132,7 +132,9 @@ option(MUE_BUILD_PROJECT_MODULE "Build project module" ON)
 option(MUE_BUILD_PROJECT_QML "Build project QML" ${MUE_BUILD_PROJECT_MODULE})
 option(MUE_BUILD_PROJECT_TESTS "Build project tests" ${MUE_BUILD_PROJECT_MODULE})
 
-option(MUE_BUILD_MACOS_INTEGRATION "Build macOS integration module" ON)
+# COLLAB: Ploq: off. It is MuseScore's Finder Quick Look preview for .mscz files (MuseScore Studio
+# provides it; Ploq doesn't claim score files), and its Swift needs full Xcode.
+option(MUE_BUILD_MACOS_INTEGRATION "Build macOS integration module" OFF)
 
 # === Setup ===
 option(MUE_DOWNLOAD_SOUNDFONT "Download the latest soundfont version as part of the build process" ON)
@@ -240,7 +242,7 @@ add_subdirectory(src)
 ###########################################
 
 if (OS_IS_LIN)
-    include(packaging/Linux+BSD/SetupAppImagePackaging)
+    include(${CMAKE_CURRENT_LIST_DIR}/tools/collab/linux/PloqLinuxPackaging.cmake) # COLLAB: Ploq desktop entry + AppImage layout (was packaging/Linux+BSD/SetupAppImagePackaging)
 endif(OS_IS_LIN)
 
 if (OS_IS_WIN)

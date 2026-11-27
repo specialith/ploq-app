@@ -160,6 +160,12 @@ Promise<Ret> AppUpdateScenario::showReleaseInfo(const ReleaseInfo& info)
             return resolve(muse::make_ret(Ret::Code::Cancel));
         }
 
+#ifndef Q_OS_WIN
+        // COLLAB: Ploq on macOS/Linux installs nothing itself: the download page has the new .dmg / AppImage
+        interactive()->openUrl(std::string("https://ploq.app/download"));
+        return resolve(muse::make_ret(Ret::Code::Cancel)); // not Ok: Ok would mean "closing to install"
+#endif
+
         //! NOTE: In test mode we skip the progress dialog and jump straight to the "needs to close" dialog...
         const bool testMode = configuration()->checkForUpdateTestMode();
         auto promise = testMode ? askToCloseAppAndCompleteInstall(/*installerPath*/ String()) : downloadRelease();

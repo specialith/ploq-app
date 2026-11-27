@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=@PLOQ_LAUNCHER_NAME@
+GenericName=Music notation
+Comment=Real-time collaboration for MuseScore scores
+Icon=app.ploq.Ploq
+Exec=ploq %U
+Terminal=false
+MimeType=x-scheme-handler/ploq;
+Categories=AudioVideo;Audio;Music;Publishing;Qt;
+Keywords=music;notation;score;sheet music;collaboration;MuseScore;
+StartupNotify=true
+StartupWMClass=@PLOQ_WM_CLASS@

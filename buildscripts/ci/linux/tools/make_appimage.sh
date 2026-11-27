@@ -201,7 +201,8 @@ for lib in "${additional_libraries[@]}"; do
     echo "Warning: ${lib} was already deployed. Skipping."
     continue
   fi
-  full_path="$(find_library "${lib}")"
+  # COLLAB: Ploq: skip what the build machine doesn't have (Ubuntu 22.04 has no OpenSSL 1.1; Qt 6 loads the system's OpenSSL 3)
+  full_path="$(find_library "${lib}")" || { echo "Warning: ${lib} not found. Skipping."; continue; }
   cp -L "${full_path}" "${appdir}/lib/${lib}"
 done
 

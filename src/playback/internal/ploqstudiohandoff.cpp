@@ -89,6 +89,18 @@ QString findMuseScoreStudio()
     for (const char* name : { "mscore4portable", "musescore4", "musescore", "mscore" }) {
         candidates << QStandardPaths::findExecutable(QString::fromLatin1(name));
     }
+#ifdef Q_OS_LINUX
+    // Flatpak (system-wide or per user), then MuseScore AppImages kept in the usual folders (newest name first;
+    // a downloaded AppImage that was never made executable can't run and is skipped by isUsableStudio).
+    candidates << QStringLiteral("/var/lib/flatpak/exports/bin/org.musescore.MuseScore")
+               << QDir::homePath() + "/.local/share/flatpak/exports/bin/org.musescore.MuseScore";
+    for (const QString& folder : { QDir::homePath() + "/Applications", QDir::homePath() + "/.local/bin", QDir::homePath() + "/Downloads" }) {
+        const QDir dir(folder);
+        for (const QString& name : dir.entryList({ "MuseScore*.AppImage" }, QDir::Files, QDir::Name | QDir::Reversed)) {
+            candidates << dir.absoluteFilePath(name);
+        }
+    }
+#endif
 #endif
 
     for (const QString& exe : candidates) {
@@ -107,7 +119,12 @@ QString studioCopyPath(const QString& scoreTitle)
         name = "Untitled score";
     }
 
+#ifdef Q_OS_LINUX
+    // Not /tmp: a Flatpak MuseScore Studio has its own /tmp and couldn't open the copy (~/.cache/Ploq/Ploq/...)
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/Listen in MuseScore Studio";
+#else
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/Ploq/Listen in MuseScore Studio";
+#endif
     QDir().mkpath(dir);
     return dir + "/" + name + ".mscz";
 }

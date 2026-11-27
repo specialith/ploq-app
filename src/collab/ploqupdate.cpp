@@ -25,6 +25,13 @@
 #include <softpub.h>
 #include <wintrust.h>
 #endif
+#ifdef Q_OS_LINUX
+#include "ploqlinux.h" // linuxEcdsaP256Verify (libgcrypt)
+#endif
+#ifdef Q_OS_MACOS
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
+#endif
 
 namespace mu::collab::ploq {
 // Ploq release key, public half (ECDSA P-256). The private half is
@@ -105,6 +112,60 @@ static bool ecdsaP256Verify(const QByteArray& message, const QByteArray& signatu
     return ok;
 }
 
+#elif defined(Q_OS_MACOS)
+// macOS installs nothing itself (yet): like Linux, a verified newer version only makes Ploq say so and
+// open ploq.app/download (appupdatescenario.cpp). Still signed, so nobody else can put text in that dialog.
+//! An unsigned big-endian integer as a DER INTEGER.
+static QByteArray derInteger(QByteArray v)
+{
+    while (v.size() > 1 && v.at(0) == 0) {
+        v.remove(0, 1);
+    }
+    if (static_cast<unsigned char>(v.at(0)) & 0x80) {
+        v.prepend('\0');
+    }
+    return QByteArray(1, 0x02) + QByteArray(1, static_cast<char>(v.size())) + v;
+}
+
+static bool ecdsaP256Verify(const QByteArray& message, const QByteArray& signature)
+{
+    if (signature.size() != 64) {
+        return false; // r||s, 32 bytes each
+    }
+    // Security framework wants the signature as DER (SEQUENCE { INTEGER r, INTEGER s }) and the key as
+    // the uncompressed point 04||x||y.
+    const QByteArray body = derInteger(signature.left(32)) + derInteger(signature.mid(32));
+    const QByteArray der = QByteArray(1, 0x30) + QByteArray(1, static_cast<char>(body.size())) + body;
+    const QByteArray point = QByteArray(1, 0x04) + QByteArray::fromHex(RELEASE_KEY_X) + QByteArray::fromHex(RELEASE_KEY_Y);
+
+    CFDataRef keyData = CFDataCreate(nullptr, reinterpret_cast<const UInt8*>(point.constData()), point.size());
+    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks,
+                                                             &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(attrs, kSecAttrKeyType, kSecAttrKeyTypeECSECPrimeRandom);
+    CFDictionarySetValue(attrs, kSecAttrKeyClass, kSecAttrKeyClassPublic);
+    SecKeyRef key = SecKeyCreateWithData(keyData, attrs, nullptr);
+    bool ok = false;
+    if (key) {
+        CFDataRef msg = CFDataCreate(nullptr, reinterpret_cast<const UInt8*>(message.constData()), message.size());
+        CFDataRef sig = CFDataCreate(nullptr, reinterpret_cast<const UInt8*>(der.constData()), der.size());
+        ok = SecKeyVerifySignature(key, kSecKeyAlgorithmECDSASignatureMessageX962SHA256, msg, sig, nullptr);
+        CFRelease(msg);
+        CFRelease(sig);
+        CFRelease(key);
+    }
+    CFRelease(attrs);
+    CFRelease(keyData);
+    return ok;
+}
+
+#elif defined(Q_OS_LINUX)
+// Linux installs nothing: a verified newer version only makes Ploq say so and open ploq.app/download
+// (appupdatescenario.cpp). Still signed, so nobody else can put text in that dialog.
+static bool ecdsaP256Verify(const QByteArray& message, const QByteArray& signature)
+{
+    return linuxEcdsaP256Verify(message, signature, RELEASE_KEY_X, RELEASE_KEY_Y);
+}
+
 #else
 static bool ecdsaP256Verify(const QByteArray&, const QByteArray&)
 {
@@ -159,10 +220,12 @@ QByteArray unwrapSignedRelease(const QByteArray& feed, QString* error)
             expected.insert(name, e);
         }
     }
+#ifdef Q_OS_WIN // macOS/Linux only need the version: they download nothing (verifyDownloadedUpdate still refuses everything)
     if (expected.isEmpty()) {
         fail(error, "signed update description lists no usable installer");
         return {};
     }
+#endif
     QMutexLocker lock(&s_mutex);
     s_expected = expected;
     return signedText;

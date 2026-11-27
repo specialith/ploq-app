@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Ploq AppImage entry point. Upstream's buildscripts/packaging/Linux+BSD/portable/AppRun.in
+# without MuseScore's portable-utils (install/update/man commands).
+
+[[ "${APPDIR}" ]] || export APPDIR="$(dirname "$(readlink -f "${0}")")"
+[[ "${APPIMAGE}" ]] || export APPIMAGE="${APPDIR}/AppRun"
+
+# Fallback libraries: bundled copies used only when the system has none
+# (buildscripts/ci/linux/tools/make_appimage.sh puts them in fallback/<library>/).
+fallback_libs=""
+for fb_dir in "${APPDIR}/fallback"/*; do
+  if [[ -d "${fb_dir}" ]]; then
+    library="${fb_dir##*/}" # library named like directory
+    if ! "${APPDIR}/bin/findlib" "${library}" >/dev/null 2>&1; then
+      echo "${APPIMAGE}: Using fallback for library '${library}'" >&2
+      fallback_libs="${fallback_libs:+${fallback_libs}:}${fb_dir}"
+    fi
+  fi
+done
+if [[ "${fallback_libs}" ]]; then
+  export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+${LD_LIBRARY_PATH}:}${fallback_libs}"
+fi
+
+exec "${APPDIR}/bin/ploq" "$@" # src/app/CMakeLists.txt: EXECUTABLE_NAME on Linux

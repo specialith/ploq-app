@@ -45,6 +45,10 @@
 
 #include "log.h"
 
+#ifdef Q_OS_MACOS
+#include "../ploqmac.h" // macCollabStarted
+#endif
+
 using namespace mu::collab;
 using namespace mu::engraving;
 
@@ -101,6 +105,9 @@ CollabSyncService* CollabSyncService::active()
 
 void CollabSyncService::init()
 {
+#ifdef Q_OS_MACOS
+    ploq::macCollabStarted([this](const QString& link) { return openLinkIfIdle(link); }); // COLLAB_INVITE is read below
+#endif
     m_serverUrl = qEnvironmentVariable("COLLAB_SERVER");
 #ifndef MUSE_APP_UNSTABLE
     if (m_serverUrl.isEmpty()) {
@@ -281,6 +288,21 @@ static QString who(const CollabAccount::Preview& p)
     return p.accountId.isEmpty() ? p.name : QString("%1 (account %2)").arg(p.name, p.accountId);
 }
 
+bool CollabSyncService::openLinkIfIdle(const QString& link)
+{
+    if (!m_accountsMode || !m_account || !m_room.isEmpty() || m_masterNotation) {
+        return false; // busy with a score: the link gets a Ploq of its own
+    }
+    m_loginCode = CollabAccount::loginCodeFrom(link);
+    m_inviteCode = m_loginCode.isEmpty() ? CollabAccount::inviteCodeFrom(link) : QString();
+    if (m_loginCode.isEmpty() && m_inviteCode.isEmpty()) {
+        return false;
+    }
+    LOGI() << "collab: opening the link in this Ploq (no score open)";
+    startAccountFlow();
+    return true;
+}
+
 void CollabSyncService::startAccountFlow()
 {
     // Opened from the website ("Open in Ploq"): the link would sign this
@@ -294,9 +316,13 @@ void CollabSyncService::startAccountFlow()
                 return;
             }
             QString text = QString("Open “%1”, signed in as %2?").arg(pv.title, who(pv));
-            if (m_account->isSignedIn() && !m_account->name().isEmpty() && m_account->name() != pv.name) {
-                text += QString("\n\nThis computer is signed in as %1. Continuing switches it to %2.")
-                        .arg(m_account->name(), pv.name);
+            // Compare accounts, not names: anyone can give their account your display name, and a link from
+            // them would then switch this computer to their account without a warning.
+            const QString mine = QString(m_account->userId()).remove(QRegularExpression("^[up]_")).left(6);
+            if (m_account->isSignedIn() && !mine.isEmpty() && mine != pv.accountId) {
+                text += QString("\n\nThis computer is signed in as %1 (account %2). Continuing switches it to a "
+                                "DIFFERENT account: %3.")
+                        .arg(m_account->name(), mine, who(pv));
             }
             text += QString("\n\nOnly continue if you clicked “Open in Ploq” on %1 yourself.").arg(QUrl(m_serverUrl).host());
             if (!askUser("Open shared score", text, "Open")) {
@@ -794,7 +820,7 @@ void CollabSyncService::onTextMessage(const QString& text)
 
         RemoteEdit edit;
         edit.seq = msg.value("seq").toInt();
-        edit.from = msg.value("name").toString();
+        edit.from = CollabAccount::cleanText(msg.value("name").toString(), 40); // shown in toasts and logs
         edit.range.tickFrom = msg.value("tickFrom").toInt(-1);
         edit.range.tickTo = msg.value("tickTo").toInt(-1);
         edit.range.staffFrom = static_cast<staff_idx_t>(msg.value("staffFrom").toInt());
@@ -847,9 +873,9 @@ void CollabSyncService::onTextMessage(const QString& text)
                                                [baseSeq](const RemoteEdit& e) { return e.seq <= baseSeq; }),
                                 m_remoteQueue.end());
             m_waitingForRoomScore = true;
-            LOGI() << "collab: " << msg.value("name").toString() << " changed the score's structure; reloading it";
+            LOGI() << "collab: " << CollabAccount::cleanText(msg.value("name").toString(), 40) << " changed the score's structure; reloading it";
             if (toastService()) {
-                showToast(ToastKind::Info, "Score updated", (msg.value("name").toString()
+                showToast(ToastKind::Info, "Score updated", (CollabAccount::cleanText(msg.value("name").toString(), 40)
                                                              + " changed instruments, measures or signatures. Reloaded.").toStdString());
             }
         }
@@ -910,6 +936,18 @@ void CollabSyncService::onTextMessage(const QString& text)
         // arrives; a server from before 2026-11-25 also refused edits inside
         // someone's lock). Others never got it; our copy keeps it until the next sync.
         const int editId = msg.value("editId").toInt(-1);
+        // "slow down": the server's rate limit (e.g. a burst of held edits after being offline). Nothing was
+        // stored, so send those measures again shortly, as they are then, instead of keeping them only here.
+        if (msg.value("reason").toString() == "slow down") {
+            for (const OwnEdit& e : m_ownEdits) {
+                if (e.editId == editId) {
+                    addToOutbox(e.range);
+                    // After the limit has refilled (2 s), not the usual 100 ms, so it doesn't just bounce again.
+                    QTimer::singleShot(2000, &m_flushTimer, [this]() { flushOutbox(); });
+                    break;
+                }
+            }
+        }
         m_ownEdits.erase(std::remove_if(m_ownEdits.begin(), m_ownEdits.end(),
                                         [editId](const OwnEdit& e) { return e.editId == editId; }),
                          m_ownEdits.end());

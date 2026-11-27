@@ -41,24 +41,14 @@ elseif(OS_IS_WIN)
     endif()
 
 elseif(OS_IS_LIN)
-    foreach(SIZE 16 24 32 48 64 96 128 512)
-        install(FILES AppIcon/MS4_AppIcon_${SIZE}x${SIZE}.png 
-                RENAME mscore${MUSE_APP_INSTALL_SUFFIX}.png 
+    # COLLAB: Ploq's app icon (desktop entry Icon=app.ploq.Ploq). No MuseScore app or .mscz file-type icons:
+    # Ploq doesn't register file types (was MS4_AppIcon_*.png as mscore.png + application-x-musescore icons).
+    foreach(SIZE 96 256 512)
+        install(FILES Ploq/Ploq_${SIZE}x${SIZE}.png
+                RENAME app.ploq.Ploq.png
                 DESTINATION share/icons/hicolor/${SIZE}x${SIZE}/apps)
     endforeach()
-
-    install(FILES MsczIcon/MS4_MsczIcon_512x512.png 
-            RENAME application-x-musescore${MUSE_APP_INSTALL_SUFFIX}.png
-            DESTINATION share/icons/hicolor/512x512/mimetypes)
-    install(FILES MscxIcon/MS4_MscxIcon_512x512.png 
-            RENAME application-x-musescore${MUSE_APP_INSTALL_SUFFIX}+xml.png
-            DESTINATION share/icons/hicolor/512x512/mimetypes)
-    install(FILES MsczIcon/MS4_MsczIcon.svg 
-            RENAME application-x-musescore${MUSE_APP_INSTALL_SUFFIX}.svg
-            DESTINATION share/icons/hicolor/scalable/mimetypes)
-    install(FILES MscxIcon/MS4_MscxIcon.svg 
-            RENAME application-x-musescore${MUSE_APP_INSTALL_SUFFIX}+xml.svg
-            DESTINATION share/icons/hicolor/scalable/mimetypes)
+    install(FILES Ploq/ploq_tile.svg RENAME app.ploq.Ploq.svg DESTINATION share/icons/hicolor/scalable/apps)
 
     # Note: Must now run "gtk-update-icon-cache" to set the new icons.
 endif()

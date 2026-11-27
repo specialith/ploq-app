@@ -118,7 +118,8 @@ jobs:
           $msi = "builds\installer\Ploq-$env:PLOQ_VERSION.msi"
           if (-not (Test-Path $msi)) { throw "$msi was not built" }
           $sha = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
-          "$sha  Ploq-$env:PLOQ_VERSION.msi" | Set-Content -Encoding ascii builds\installer\SHA256SUMS.txt
+          # LF line ending: `sha256sum -c` (Linux, macOS, Git Bash) rejects CRLF lines.
+          [IO.File]::WriteAllText("$PWD\builds\installer\SHA256SUMS.txt", "$sha  Ploq-$env:PLOQ_VERSION.msi`n")
           Get-Content builds\installer\SHA256SUMS.txt
 
       - name: Keep the installer

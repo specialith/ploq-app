@@ -444,7 +444,12 @@ bool Read460::pasteStaff(XmlReader& e, Segment* dst, staff_idx_t dstStaff, Fract
                             e.unknown();
                         }
                         voice_idx_t voiceId = static_cast<voice_idx_t>(e.intAttribute("id", -1));
-                        assert(voiceId < VOICES);
+                        // COLLAB: a real check, not assert (compiled out of release builds): pasted XML can come
+                        // from another room member, and an id >= VOICES wrote past this stack array.
+                        if (voiceId >= VOICES) {
+                            e.skipCurrentElement();
+                            continue;
+                        }
                         voiceOffset[voiceId] = Fraction::fromTicks(e.readInt()) * timeStretch;
                     }
                     if (!score->makeGap1(dstTick, dstStaffIdx, tickLen * timeStretch, voiceOffset)) {

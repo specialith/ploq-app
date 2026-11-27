@@ -4,6 +4,7 @@
  * Collab fork — live cursors (Phase 4).
  */
 #include "cursorlayer.h"
+#include "account.h" // CollabAccount::cleanText for peer names
 
 #include <algorithm>
 #include <cmath>
@@ -126,7 +127,7 @@ QString CursorLayer::safeColor(const QString& wanted, qint64 seed)
 
 void CursorLayer::updateIdentity(int id, Remote& r, const QJsonObject& msg)
 {
-    r.name = msg.value("name").toString();
+    r.name = CollabAccount::cleanText(msg.value("name").toString(), 40); // a peer's name: no control/bidi tricks
     if (msg.contains("color")) {
         r.color = Color::fromString(safeColor(msg.value("color").toString(), id).toStdString());
     }
@@ -593,7 +594,11 @@ void CursorLayer::paint(Painter* painter, QQuickPaintedItem* view)
     // The painter currently maps score units → painter coords (our zoom and
     // scroll). Keep it so cursor moves can work out which strip to repaint.
     m_lastToPainter = painter->worldTransform();
-    m_lastDpr = (view && view->window()) ? view->window()->devicePixelRatio() : 1.0;
+    // MuseScore's GUI scale (UiConfiguration::guiScaling): the screen's device pixel ratio. Not the window's:
+    // MuseScore paints in device pixels and its window reports 1, so on a Retina Mac (2) name tags, arrows
+    // and padding came out at half size.
+    const QScreen* screen = (view && view->window()) ? view->window()->screen() : nullptr;
+    m_lastDpr = screen ? screen->devicePixelRatio() : 1.0;
     m_haveTransform = true;
 
     if (!m_fpsLogPath.isEmpty()) {
@@ -624,7 +629,12 @@ void CursorLayer::paint(Painter* painter, QQuickPaintedItem* view)
     // Name tags: Inter Light (bundled, see collabmodule.cpp), thin and clean.
     Font font;
     font.setFamily(Font::FontFamily(u"Inter"), Font::Type::Text);
-    font.setPixelSize(static_cast<int>(std::round(12 * s)));
+    // 12 px (times the GUI scale), given in points the way MuseScore's painter expects: Painter::drawText
+    // rescales the point size by 1200 / the device's DPI (applyFontSizeScaling) and FontMetrics measures at
+    // 1200 DPI, so P * 72 / 1200 points come out as P pixels in both, on any screen. A pixel size was wiped
+    // by that rescale and the text fell back to the default UI size: fine on Windows at 100%, tiny on a
+    // Retina Mac, and no longer the size the tag boxes were measured for.
+    font.setPointSizeF(12.0 * s * 72.0 / 1200.0);
     font.setWeight(Font::Light);
     const FontMetrics fm(font);
 

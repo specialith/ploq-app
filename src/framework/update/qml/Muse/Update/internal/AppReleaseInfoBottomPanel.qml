@@ -83,7 +83,8 @@ RowLayout {
 
         Layout.alignment: Qt.AlignVCenter
 
-        text: qsTrc("update", "Install update")
+        // COLLAB: Ploq on macOS/Linux opens ploq.app/download instead of installing (appupdatescenario.cpp)
+        text: Qt.platform.os !== "windows" ? "Go to download page" : qsTrc("update", "Install update")
 
         accentButton: true
 

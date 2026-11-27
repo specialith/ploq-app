@@ -58,7 +58,88 @@ bool write(const QString& target, const QString& secret)
 }
 }
 
-#else
+#elif defined(Q_OS_MACOS)
+// macOS: the login Keychain, as generic passwords (service "Ploq", account = target).
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
+
+namespace mu::collab::credentials {
+namespace {
+//! Owns a CoreFoundation object.
+template<typename T>
+struct CfRef {
+    T ref = nullptr;
+    explicit CfRef(T r = nullptr)
+        : ref(r) {}
+    ~CfRef() { if (ref) { CFRelease(ref); } }
+    CfRef(const CfRef&) = delete;
+    CfRef& operator=(const CfRef&) = delete;
+};
+
+CFStringRef cfString(const QString& s)
+{
+    return s.toCFString(); // caller owns it
+}
+
+//! The query that names one item: class, service, account.
+CFMutableDictionaryRef itemQuery(CFStringRef account)
+{
+    CFMutableDictionaryRef q = CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks,
+                                                         &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(q, kSecClass, kSecClassGenericPassword);
+    CFDictionarySetValue(q, kSecAttrService, CFSTR("Ploq"));
+    CFDictionarySetValue(q, kSecAttrAccount, account);
+    return q;
+}
+}
+
+bool available()
+{
+    return true;
+}
+
+QString read(const QString& target)
+{
+    CfRef<CFStringRef> account(cfString(target));
+    CfRef<CFMutableDictionaryRef> q(itemQuery(account.ref));
+    CFDictionarySetValue(q.ref, kSecReturnData, kCFBooleanTrue);
+    CFDictionarySetValue(q.ref, kSecMatchLimit, kSecMatchLimitOne);
+    CFTypeRef result = nullptr;
+    if (SecItemCopyMatching(q.ref, &result) != errSecSuccess || !result) {
+        return QString();
+    }
+    CfRef<CFDataRef> data(static_cast<CFDataRef>(result));
+    return QString::fromUtf8(reinterpret_cast<const char*>(CFDataGetBytePtr(data.ref)),
+                             static_cast<qsizetype>(CFDataGetLength(data.ref)));
+}
+
+bool write(const QString& target, const QString& secret)
+{
+    CfRef<CFStringRef> account(cfString(target));
+    CfRef<CFMutableDictionaryRef> q(itemQuery(account.ref));
+    if (secret.isEmpty()) {
+        const OSStatus st = SecItemDelete(q.ref);
+        return st == errSecSuccess || st == errSecItemNotFound;
+    }
+    const QByteArray bytes = secret.toUtf8();
+    CfRef<CFDataRef> data(CFDataCreate(nullptr, reinterpret_cast<const UInt8*>(bytes.constData()), bytes.size()));
+
+    CfRef<CFMutableDictionaryRef> update(CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks,
+                                                                   &kCFTypeDictionaryValueCallBacks));
+    CFDictionarySetValue(update.ref, kSecValueData, data.ref);
+    OSStatus st = SecItemUpdate(q.ref, update.ref);
+    if (st == errSecItemNotFound) {
+        CFDictionarySetValue(q.ref, kSecValueData, data.ref);
+        CFDictionarySetValue(q.ref, kSecAttrLabel, CFSTR("Ploq sign-in"));
+        // Readable while this Mac user is logged in, and never synced to other devices.
+        CFDictionarySetValue(q.ref, kSecAttrAccessible, kSecAttrAccessibleWhenUnlockedThisDeviceOnly);
+        st = SecItemAdd(q.ref, nullptr);
+    }
+    return st == errSecSuccess;
+}
+}
+
+#elif !defined(PLOQ_HAVE_LIBSECRET) // Linux: credentialstore_libsecret.cpp
 
 namespace mu::collab::credentials {
 bool available()

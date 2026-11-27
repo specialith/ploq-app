@@ -92,6 +92,11 @@ void MacOSPlatformTheme::applyPlatformStyleOnWindowForTheme(QWindow* window, con
     if (!window) {
         return;
     }
+    // COLLAB: Ploq: winId() is only an NSView on the cocoa platform; with QT_QPA_PLATFORM=offscreen (QA runs)
+    // it isn't, and messaging it crashed at startup.
+    if (QGuiApplication::platformName() != QLatin1String("cocoa")) {
+        return;
+    }
 
     QColor backgroundColor = QApplication::palette().window().color();
     NSView* nsView = (__bridge NSView*)reinterpret_cast<void*>(window->winId());

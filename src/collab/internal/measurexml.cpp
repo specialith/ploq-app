@@ -268,6 +268,70 @@ static bool xmlMatchesRange(const QByteArray& xml, const MeasureRange& range)
     return ok && staffLists == 1 && !r.hasError();
 }
 
+//! Everything in the XML that says WHERE content lands must stay inside the staves the message claims.
+//! The paste code (Read460::pasteStaff) trusts these values and only guards them with asserts, which release
+//! builds compile out: a voice id >= 4 wrote past a stack array, and a <location>, <track> or <track2> could
+//! point past the score's tracks (out-of-bounds writes, or writes into someone else's staves). Room members
+//! are not trusted, so anything outside the claimed range refuses the whole edit.
+static bool xmlPositionsStayInRange(const QByteArray& xml, const MeasureRange& range)
+{
+    const int firstTrack = static_cast<int>(range.staffFrom * VOICES);
+    const int endTrack = static_cast<int>(range.staffTo * VOICES);
+    QXmlStreamReader r(xml);
+    int staff = -1;
+    int voice = 0;
+    auto readInt = [&r](bool* ok) { return r.readElementText().trimmed().toInt(ok); };
+    while (!r.atEnd()) {
+        r.readNext();
+        if (!r.isStartElement()) {
+            continue;
+        }
+        const auto name = r.name();
+        bool ok = true;
+        if (name == u"Staff") {
+            staff = r.attributes().value(u"id").toInt(&ok); // checked against the range by xmlMatchesRange
+            voice = 0;
+        } else if (name == u"voice") {
+            // <voiceOffset><voice id="N">: N indexes a VOICES-sized array in pasteStaff.
+            const int id = r.attributes().value(u"id").toInt(&ok);
+            if (!ok || id < 0 || id >= static_cast<int>(VOICES)) {
+                return false;
+            }
+        } else if (name == u"location") {
+            // Relative: <staves> and <voices> move the paste position from the current staff/voice.
+            int dStaff = 0;
+            int dVoice = 0;
+            while (r.readNextStartElement()) {
+                if (r.name() == u"staves") {
+                    dStaff = readInt(&ok);
+                } else if (r.name() == u"voices") {
+                    dVoice = readInt(&ok);
+                } else {
+                    r.skipCurrentElement();
+                }
+                if (!ok) {
+                    return false;
+                }
+            }
+            voice += dVoice;
+            if (dStaff != 0 || voice < 0 || voice >= static_cast<int>(VOICES)) {
+                return false; // a measure copy never leaves its <Staff>
+            }
+        } else if (name == u"track") {
+            const int t = readInt(&ok);
+            if (!ok || staff < 0 || t < staff * static_cast<int>(VOICES) || t >= (staff + 1) * static_cast<int>(VOICES)) {
+                return false;
+            }
+        } else if (name == u"track2") {
+            const int t = readInt(&ok);
+            if (!ok || t < firstTrack || t >= endTrack) {
+                return false;
+            }
+        }
+    }
+    return !r.hasError();
+}
+
 //! Which (staff, voice) pairs carry content in a <StaffList> document.
 static std::set<std::pair<int, int> > voicesInXml(const QByteArray& xml)
 {
@@ -317,6 +381,10 @@ bool applyMeasures(Score* score, const MeasureRange& range, const QByteArray& xm
     }
     if (!xmlMatchesRange(xml, range)) {
         LOGW() << "collab: incoming edit's XML doesn't match the measures/staves it claims; ignored";
+        return false;
+    }
+    if (!xmlPositionsStayInRange(xml, range)) {
+        LOGW() << "collab: incoming edit's XML points outside the staves it claims; ignored";
         return false;
     }
 

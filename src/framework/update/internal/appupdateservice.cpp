@@ -334,9 +334,11 @@ RetVal<ReleaseInfo> AppUpdateService::parseRelease(const QByteArray& json) const
 
     QJsonObject release = jsonDoc.object();
     QJsonObject assetObj = resolveReleaseAsset(release);
+#ifdef Q_OS_WIN // COLLAB: Ploq on macOS/Linux downloads nothing (it opens ploq.app/download): the version is enough
     if (assetObj.empty()) {
         return make_ret(Err::ReleaseInfoParseError, "No release asset");
     }
+#endif
 
     QString tagName = release.value("tag_name").toString();
     QString version = tagName.replace("v", "");

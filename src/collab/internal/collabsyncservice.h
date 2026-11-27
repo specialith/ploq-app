@@ -105,6 +105,11 @@ public:
     void notifySignedOut();
     void notify(const QString& text, bool info = false);
 
+    //! A ploq:// invite / "Open in Ploq" link that arrived after start-up (macOS sends links to the
+    //! running app). Joins right here if no score is open and we are in no room (Ploq was opened by
+    //! that link); otherwise returns false and the caller opens a new Ploq for it.
+    bool openLinkIfIdle(const QString& link);
+
 private:
     struct RemoteEdit {
         int seq = 0;

@@ -27,6 +27,13 @@ foreach ($tool in "heat.exe", "candle.exe", "light.exe") {
 }
 if (-not (Test-Path "$InstallDir\bin\Ploq.exe")) { throw "Build first: tools\collab\build.bat ($InstallDir\bin\Ploq.exe missing)" }
 if (-not (Test-Path "$InstallDir\bin\Qt6Core.dll")) { throw "Qt DLLs missing next to Ploq.exe: configure with -DMUE_RUN_WINDEPLOYQT=ON" }
+# Only release-mode builds: a development build (MUSE_APP_UNSTABLE) keeps the QA hooks (COLLAB_AUTOBOT,
+# COLLAB_HOST, PLOQ_QA_*) that release builds compile out, and must never ship to users.
+$frameworkConfig = Join-Path (Split-Path $InstallDir -Parent) "muse_framework_config.h"
+if (-not (Test-Path $frameworkConfig)) { throw "Can't tell the build mode: $frameworkConfig is missing" }
+if (Select-String -Path $frameworkConfig -Pattern '^\s*#define\s+MUSE_APP_UNSTABLE\b' -Quiet) {
+    throw "This is a development build (MUSE_APP_UNSTABLE). Build in release mode: -DMUSE_APP_BUILD_MODE=release (see README.md)"
+}
 
 Write-Host "1/5 Staging Ploq $version..."
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }

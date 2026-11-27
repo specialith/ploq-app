@@ -48,6 +48,7 @@ if (OS_IS_WIN)
     endif()
 
 elseif(OS_IS_LIN)
+    set(EXECUTABLE_NAME ploq) # COLLAB: bin/ploq (was mscore)
 
     # add ssl support on local linux machine
     # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L /usr/local/lib -lcrypto -lssl")
@@ -63,12 +64,18 @@ elseif(OS_IS_LIN)
 
 elseif(OS_IS_MAC)
 
-    set(MACOSX_BUNDLE_GUI_IDENTIFIER ${MUSE_APP_GUI_IDENTIFIER})
-    set(MACOSX_BUNDLE_BUNDLE_NAME ${MUSE_APP_TITLE})
-    set(MACOSX_BUNDLE_LONG_VERSION_STRING ${MUSE_APP_VERSION})
-    set(MACOSX_BUNDLE_SHORT_VERSION_STRING ${MUSE_APP_VERSION})
-    set(MACOSX_BUNDLE_BUNDLE_VERSION ${CMAKE_BUILD_NUMBER})
-    set(MACOSX_BUNDLE_COPYRIGHT "Copyright © 1999-2026 MuseScore Limited. Published under the GNU General Public License version 3.")
+    # COLLAB: Ploq.app (was mscore.app, "MuseScore Studio", org.musescore.MuseScore), with Ploq's own
+    # version (src/collab/PLOQ_VERSION; MuseScore's MUSE_APP_VERSION stays inside for score files).
+    set(EXECUTABLE_NAME Ploq)
+    file(STRINGS ${PROJECT_SOURCE_DIR}/src/collab/PLOQ_VERSION PLOQ_BUNDLE_VERSION LIMIT_COUNT 1)
+    string(STRIP "${PLOQ_BUNDLE_VERSION}" PLOQ_BUNDLE_VERSION)
+    set(MACOSX_BUNDLE_GUI_IDENTIFIER "app.ploq.Ploq")
+    set(MACOSX_BUNDLE_BUNDLE_NAME "Ploq")
+    set(MACOSX_BUNDLE_LONG_VERSION_STRING ${PLOQ_BUNDLE_VERSION})
+    set(MACOSX_BUNDLE_SHORT_VERSION_STRING ${PLOQ_BUNDLE_VERSION})
+    set(MACOSX_BUNDLE_BUNDLE_VERSION ${PLOQ_BUNDLE_VERSION}.${CMAKE_BUILD_NUMBER})
+    set(MACOSX_BUNDLE_ICON_FILE "Ploq.icns")
+    set(MACOSX_BUNDLE_COPYRIGHT "Copyright © 2026 Ploq, LLC. Based on MuseScore Studio, copyright © 1999-2026 MuseScore Limited. Published under the GNU General Public License version 3.")
 
     set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${QT_INSTALL_LIBS};@loader_path/../Frameworks")
     if (MUE_COMPILE_MACOS_PRECOMPILED_DEPS_PATH)
@@ -253,11 +260,14 @@ if (MUSE_ENABLE_UNIT_TESTS_CODE_COVERAGE)
 endif()
 
 if (OS_IS_MAC)
-    include(${PROJECT_SOURCE_DIR}/share/icons/SetupIconComposerIcon.cmake)
-    target_setup_iconcomposer_icon(MuseScoreStudio "${PROJECT_SOURCE_DIR}/share/icons/AppIcon/AppIcon.icon")
+    # COLLAB: Ploq's icon as a classic .icns (tools/collab/branding/make_icons.py), instead of
+    # MuseScore's Icon Composer icon, which needs full Xcode's actool.
+    set(PLOQ_ICNS ${PROJECT_SOURCE_DIR}/share/icons/Ploq/Ploq.icns)
+    target_sources(MuseScoreStudio PRIVATE ${PLOQ_ICNS})
+    set_source_files_properties(${PLOQ_ICNS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
     set_target_properties(MuseScoreStudio PROPERTIES
-        MACOSX_BUNDLE_INFO_PLIST ${PROJECT_SOURCE_DIR}/buildscripts/packaging/macOS/Info.plist.in
+        MACOSX_BUNDLE_INFO_PLIST ${PROJECT_SOURCE_DIR}/buildscripts/packaging/macOS/Ploq-Info.plist.in # COLLAB: was Info.plist.in
         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${MACOSX_BUNDLE_GUI_IDENTIFIER}
     )
 endif (OS_IS_MAC)
@@ -363,9 +373,7 @@ if (OS_IS_WIN)
 # Linux
 ###########################################
 elseif(OS_IS_LIN)
-    # Install mscore executable (package maintainers may add "MuseScore" and/or "musescore" aliases that symlink to mscore)
-    install(CODE "message(STATUS \"Creating symlink ${CMAKE_INSTALL_PREFIX}/bin/musescore${MUSE_APP_INSTALL_SUFFIX} -> ${CMAKE_INSTALL_PREFIX}/bin/mscore${MUSE_APP_INSTALL_SUFFIX}\")
-                  execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink \"${CMAKE_INSTALL_PREFIX}/bin/mscore${MUSE_APP_INSTALL_SUFFIX}\" \"${CMAKE_INSTALL_PREFIX}/bin/musescore${MUSE_APP_INSTALL_SUFFIX}\")")
+    # COLLAB: Ploq installs only bin/ploq: no "musescore" alias (it would shadow a real MuseScore install)
 
 ###########################################
 # FreeBSD

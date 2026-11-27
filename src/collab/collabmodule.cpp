@@ -17,6 +17,9 @@
 #include "internal/collabsyncservice.h"
 #include "internal/collabuiactions.h"
 #include "ploqapp.h"
+#ifdef Q_OS_LINUX
+#include "ploqlinux.h"
+#endif
 
 #include "log.h"
 
@@ -50,6 +53,9 @@ static void registerLinkHandler()
     reg.setValue("URL Protocol", "");
     reg.setValue("shell/open/command/Default", "\"" + exe + "\" --ploq-link \"%1\"");
     LOGI() << "collab: ploq:// links open " << exe;
+#endif
+#ifdef Q_OS_LINUX
+    ploq::linuxRegisterLinkHandler(); // the AppImage only: a hidden desktop entry for x-scheme-handler/ploq (ploqlinux.cpp)
 #endif
 }
 

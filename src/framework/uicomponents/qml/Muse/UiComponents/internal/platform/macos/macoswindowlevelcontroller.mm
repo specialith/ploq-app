@@ -24,12 +24,17 @@
 
 #include <Cocoa/Cocoa.h>
 #include <QWindow>
+#include <QGuiApplication>
 
 using namespace muse::uicomponents;
 
 static NSWindow* nsWindowForQWindow(QWindow* window)
 {
     if (!window) {
+        return nil;
+    }
+    // COLLAB: Ploq: winId() is only an NSView on the cocoa platform (not with QT_QPA_PLATFORM=offscreen).
+    if (QGuiApplication::platformName() != QLatin1String("cocoa")) {
         return nil;
     }
 

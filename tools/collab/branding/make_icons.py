@@ -78,8 +78,33 @@ def tile(size):
     return Image.alpha_composite(bg, fg)
 
 
+def mac_icon(size=1024):
+    """macOS app icon on Apple's grid: an 824/1024 rounded square, inset 100/1024, white mark.
+
+    The mark is centred optically: its two note-heads carry most of the weight at the top, so
+    the point 35% of the way from the ink's bounding-box centre (y 69.6) to its centroid (y 58.1)
+    goes on the tile's centre (y 65.57 in viewBox units).
+    """
+    inset = size * 100 / 1024
+    side = size - 2 * inset
+    bg = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    plate = Image.new("RGBA", (round(side), round(side)), INK + (255,))
+    plate.putalpha(rounded_square_mask(round(side), radius_frac=185 / 824))
+    bg.alpha_composite(plate, (round(inset), round(inset)))
+    s = side * 0.58 / 86.78                # the ink (86.78 wide) fills 58% of the tile
+    w = 140 * s
+    x0 = size / 2 - 70 * s
+    y0 = size / 2 - 65.57 * s
+    fg = Image.new("RGBA", (size, size), WHITE + (0,))
+    fg.putalpha(mark_mask(size, (x0, y0, w)))
+    return Image.alpha_composite(bg, fg)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
+    mac = mac_icon(1024)
+    mac.save(os.path.join(OUT, "Ploq.icns"))   # Pillow writes all the sizes macOS wants
+    mac.save(os.path.join(OUT, "Ploq_mac_1024x1024.png"))
     big = tile(256)
     sizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
     imgs = {s: (big if s == 256 else tile(s)) for s in sizes}

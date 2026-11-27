@@ -73,7 +73,7 @@ endif()
 ###########################################
 if (OS_IS_MAC)
     set(Mscore_INSTALL_NAME    "Contents/Resources/")
-    set(Mscore_SHARE_NAME      "mscore.app/")
+    set(Mscore_SHARE_NAME      "Ploq.app/") # COLLAB: was mscore.app
 elseif (OS_IS_WIN)
     set(Mscore_INSTALL_NAME  "")
     set(Mscore_SHARE_NAME    "./")
