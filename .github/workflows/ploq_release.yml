@@ -1,20 +1,25 @@
 # Ploq release builds, on GitHub's machines, from exactly the code in this repository.
 #
 # Push a tag v<version> (it must match src/collab/PLOQ_VERSION) and this workflow:
-#   1. builds Ploq for Windows in release mode (the same settings as a local release build:
-#      tools/collab/build.bat + a generated build_overrides.cmake) and its installer
-#      (tools/collab/installer/build_installer.ps1),
-#   2. signs a build provenance attestation for the installer (public repositories only), so anyone
+#   1. builds Ploq in release mode for
+#      - Windows: tools/collab/build.bat + a generated build_overrides.cmake, then the .msi
+#        (tools/collab/installer/build_installer.ps1) and Ploq's setup app around it (installer/setup),
+#      - macOS: one app for Apple Silicon and Intel (tools/collab/macos/build.sh), signed with the
+#        Developer ID and notarized by Apple in a separate job (macos-sign, see there),
+#      - Linux: an AppImage on Ubuntu 22.04 (tools/collab/linux/build_appimage.sh),
+#   2. signs a build provenance attestation for every file (public repositories only), so anyone
 #      can check it was built here from this code:
-#         gh attestation verify Ploq-<version>.msi -R specialith/ploq-app
-#   3. publishes a GitHub Release with the installer and its SHA-256.
-# The debug symbols (Ploq.pdb + Ploq.exe, needed to read crash reports) are kept as a workflow artifact.
+#         gh attestation verify Ploq-<version>.dmg -R specialith/ploq-app
+#   3. publishes a GitHub Release with the files and their SHA-256.
+# The Windows debug symbols (Ploq.pdb + Ploq.exe, needed to read crash reports) are kept as a workflow artifact.
 #
-# Run it by hand (Actions > Ploq release > Run workflow) to test a build without releasing.
+# Run it by hand (Actions > Ploq release > Run workflow) to test a build, signing included, without releasing.
 #
-# Two jobs on purpose: the build runs third-party code (the Qt installer action, the build itself)
-# with read-only permissions; only the small release job, which runs nothing but GitHub's own
-# actions and gh, can sign attestations and create releases. Every action is pinned to a commit.
+# Jobs split on purpose: the builds run third-party code (the Qt installer action and downloads, the
+# build itself) with read-only permissions and no secrets. The Apple signing secrets are only in the
+# mac-signing environment, used by macos-sign, which builds nothing and waits for the maintainer's
+# approval on GitHub. Only the small release job, which runs nothing but GitHub's own actions and gh,
+# can sign attestations and create releases. Every action is pinned to a commit.
 #
 # Not here on purpose: the update feed's signing key. The feed (latest.json) is signed on the
 # maintainer's computer after checking this workflow's attestation, so a compromised workflow
@@ -147,8 +152,188 @@ jobs:
           path: builds/symbols/${{ env.PLOQ_VERSION }}/
           retention-days: 90
 
+
+  linux:
+    # Ubuntu 22.04 like upstream MuseScore: the AppImage runs on distributions from 2022 on (glibc 2.35).
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || github.repository == 'specialith/ploq-app'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        run: echo "PLOQ_VERSION=$(head -n1 src/collab/PLOQ_VERSION | tr -d '[:space:]')" >> "$GITHUB_ENV"
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        with:
+          version: 6.10.2
+          host: 'linux'
+          target: 'desktop'
+          arch: 'linux_gcc_64'
+          modules: 'qt5compat qtnetworkauth qtshadertools qtwebsockets'
+          cache: true
+
+      - name: Build the AppImage
+        # --setup: the apt packages, g++-10 and PipeWire (upstream's buildscripts/ci/linux/setup.sh); Qt is
+        # already there (QT_ROOT_DIR from the step above), so it isn't installed again.
+        run: bash tools/collab/linux/build_appimage.sh --setup -j 4
+
+      - name: Keep the AppImage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-appimage
+          path: build-appimage/Ploq-${{ env.PLOQ_VERSION }}-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+  macos:
+    # One app for Apple Silicon and Intel (universal), like upstream MuseScore's macOS build. No secrets
+    # here: this job builds and bundles Qt; macos-sign signs and notarizes.
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || github.repository == 'specialith/ploq-app'
+    runs-on: macos-26
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        run: echo "PLOQ_VERSION=$(head -n1 src/collab/PLOQ_VERSION | tr -d '[:space:]')" >> "$GITHUB_ENV"
+
+      - name: Qt and dependencies
+        # The same downloads as upstream's buildscripts/ci/macos/install_qt.sh and download_dependencies.sh,
+        # pinned to their SHA-256 so a changed file stops the build instead of going into Ploq.
+        run: |
+          set -euo pipefail
+          command -v 7z >/dev/null || brew install p7zip
+          command -v ninja >/dev/null || brew install ninja
+          command -v cmake >/dev/null || brew install cmake
+          curl -fsSL -o "$RUNNER_TEMP/qt.7z" 'https://github.com/cbjeukendrup/musescore_build_qt/releases/download/v21960860930/Qt-6.10.2-macOS-10.15.7z'
+          echo "40750337e35c371140c4b194c4458a841013618a5b7c4fbfe85f391223d9fe30  $RUNNER_TEMP/qt.7z" | shasum -a 256 -c
+          7z x "$RUNNER_TEMP/qt.7z" -o"$HOME/Qt/6.10.2/macos" > /dev/null
+          curl -fsSL -o "$RUNNER_TEMP/deps.tar.gz" 'https://raw.githubusercontent.com/cbjeukendrup/musescore_deps/main/musescore_deps_macos.tar.gz'
+          echo "a0fc77b6de7c8ed1a59cea7e93c819c9c95989185b82ba7b158e71a5b2c0c0e5  $RUNNER_TEMP/deps.tar.gz" | shasum -a 256 -c
+          mkdir -p "$HOME/musescore_deps_macos"
+          tar xf "$RUNNER_TEMP/deps.tar.gz" -C "$HOME/musescore_deps_macos"
+
+      - name: Build
+        run: ARCHS="arm64;x86_64" JOBS=4 BUILD_NUMBER="$GITHUB_RUN_NUMBER" bash tools/collab/macos/build.sh
+
+      - name: Bundle Qt into Ploq.app
+        # macdeployqt, then the check that nothing in the app still points at this machine's files.
+        run: bash tools/collab/macos/package.sh --no-sign --no-dmg
+
+      - name: Pack the app
+        # tar keeps the frameworks' symlinks and permissions (an artifact zip would not).
+        run: tar -C applebuild -czf "$RUNNER_TEMP/Ploq-app-macos.tar.gz" Ploq.app
+
+      - name: Keep the app
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-app
+          path: ${{ runner.temp }}/Ploq-app-macos.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  macos-sign:
+    # Signs and notarizes the app from the macos job with the Developer ID. The certificate and the notary
+    # key are secrets of the mac-signing environment: only main and v* tags may use it, and every run waits
+    # for the maintainer to approve it on GitHub. This job builds nothing.
+    needs: macos
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: mac-signing
+    permissions:
+      contents: read
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        run: echo "PLOQ_VERSION=$(head -n1 src/collab/PLOQ_VERSION | tr -d '[:space:]')" >> "$GITHUB_ENV"
+
+      - name: Get the app
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-app
+          path: ${{ runner.temp }}/app
+
+      - name: Unpack the app
+        run: mkdir -p applebuild && tar -C applebuild -xzf "$RUNNER_TEMP/app/Ploq-app-macos.tar.gz"
+
+      - name: Signing keychain
+        # A throwaway keychain at the path tools/collab/macos/signing.sh uses, so package.sh runs unchanged.
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ploq"
+          KC="$HOME/Library/Keychains/ploq-signing.keychain-db"
+          KC_PASS="$(openssl rand -hex 24)"
+          printf %s "$KC_PASS" > "$HOME/.ploq/keychain-pass"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 7200 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          printf %s "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign > /dev/null
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC" > /dev/null
+          printf %s "$NOTARY_KEY_P8" | base64 --decode > "$HOME/.ploq/AuthKey.p8"
+          {
+            echo 'SIGN_IDENTITY="Developer ID Application: Ploq, LLC (5NRAWKP4N6)"'
+            echo "NOTARY_KEY=$HOME/.ploq/AuthKey.p8"
+            echo "NOTARY_KEY_ID=$NOTARY_KEY_ID"
+            echo "NOTARY_ISSUER=$NOTARY_ISSUER"
+            echo 'NOTARY_TEAM_ID=5NRAWKP4N6'
+          } > "$HOME/.ploq/notary.env"
+          security find-identity -v -p codesigning "$KC" | grep -c "Developer ID Application: Ploq, LLC"
+
+      - name: Sign, notarize and make the .dmg
+        run: bash tools/collab/macos/package.sh
+
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          security delete-keychain "$HOME/Library/Keychains/ploq-signing.keychain-db" 2>/dev/null || true
+          rm -rf "$HOME/.ploq"
+
+      - name: Keep the .dmg
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-dmg
+          path: applebuild/Ploq-${{ env.PLOQ_VERSION }}.dmg
+          if-no-files-found: error
+          retention-days: 30
+
   release:
-    needs: windows
+    needs: [windows, linux, macos, macos-sign]
+    # Every build must pass. The signed .dmg is needed for a release (tags); a plain publish to main
+    # builds everything but doesn't sign, so macos-sign is skipped there.
+    if: >-
+      !cancelled() && needs.windows.result == 'success' && needs.linux.result == 'success' &&
+      needs.macos.result == 'success' &&
+      (needs.macos-sign.result == 'success' || (needs.macos-sign.result == 'skipped' && github.ref_type != 'tag'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -158,23 +343,40 @@ jobs:
     env:
       PLOQ_VERSION: ${{ needs.windows.outputs.version }}
     steps:
-      - name: Get the installer
+      - name: Get the Windows installers
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: windows-installer
           path: dist
 
-      - name: Check the SHA-256
+      - name: Check the Windows SHA-256
         working-directory: dist
         run: sha256sum -c SHA256SUMS.txt
+
+      - name: Get the AppImage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-appimage
+          path: dist
+
+      - name: Get the .dmg
+        if: needs.macos-sign.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-dmg
+          path: dist
+
+      - name: SHA-256 of every file
+        working-directory: dist
+        run: |
+          sha256sum Ploq-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Attest the installers
         if: github.ref_type == 'tag' && github.event.repository.visibility == 'public'
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
-          subject-path: |
-            dist/Ploq-${{ env.PLOQ_VERSION }}.msi
-            dist/Ploq-${{ env.PLOQ_VERSION }}-Setup.exe
+          subject-path: dist/Ploq-*
 
       - name: GitHub Release
         if: github.ref_type == 'tag'
@@ -183,12 +385,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           v="$PLOQ_VERSION"
-          notes="Ploq $v for Windows, built by GitHub Actions from commit $GITHUB_SHA of this repository ([build log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)).
+          notes="Ploq $v for Windows, macOS and Linux, built by GitHub Actions from commit $GITHUB_SHA of this repository ([build log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)).
 
-          Ploq-$v-Setup.exe is the installer to download. Ploq-$v.msi is the same install without the setup
-          screen (Ploq updates itself from it). Check that either one came from this build:
+          - Windows: Ploq-$v-Setup.exe. Ploq-$v.msi is the same install without the setup screen (Ploq updates itself from it).
+          - macOS (Apple Silicon and Intel, macOS 10.15 or newer): Ploq-$v.dmg, signed and notarized by Apple.
+          - Linux (x86_64, distributions from 2022 on): Ploq-$v-x86_64.AppImage.
 
-              gh attestation verify Ploq-$v-Setup.exe -R $GITHUB_REPOSITORY
+          Check that a file came from this build:
+
+              gh attestation verify Ploq-$v.dmg -R $GITHUB_REPOSITORY
 
           SHA-256: see SHA256SUMS.txt. Download page: https://ploq.app/download"
-          gh release create "$GITHUB_REF_NAME" "dist/Ploq-$v-Setup.exe" "dist/Ploq-$v.msi" dist/SHA256SUMS.txt --title "Ploq $v" --notes "$notes" --verify-tag
+          gh release create "$GITHUB_REF_NAME" dist/Ploq-* dist/SHA256SUMS.txt --title "Ploq $v" --notes "$notes" --verify-tag

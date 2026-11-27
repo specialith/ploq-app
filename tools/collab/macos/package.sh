@@ -4,6 +4,7 @@
 #   tools/collab/macos/package.sh                 # sign + notarize (needs the settings below)
 #   tools/collab/macos/package.sh --no-notarize   # sign only (quick local test)
 #   tools/collab/macos/package.sh --no-sign       # unsigned .dmg (anyone can build this)
+#   tools/collab/macos/package.sh --no-sign --no-dmg  # only bundle Qt into Ploq.app and check it (CI build job)
 #
 # Signing and notarization settings live outside the repo, in ~/.ploq/notary.env:
 #   SIGN_IDENTITY="Developer ID Application: Ploq, LLC (5NRAWKP4N6)"
@@ -18,10 +19,12 @@ set -euo pipefail
 
 DO_SIGN=1
 DO_NOTARIZE=1
+DO_DMG=1
 for a in "$@"; do
     case "$a" in
         --no-sign) DO_SIGN=0; DO_NOTARIZE=0 ;;
         --no-notarize) DO_NOTARIZE=0 ;;
+        --no-dmg) DO_DMG=0 ;;
         *) echo "unknown option $a"; exit 2 ;;
     esac
 done
@@ -99,6 +102,8 @@ if [ "$DO_SIGN" = 1 ]; then
         spctl --assess --type execute -vv "$APP"
     fi
 fi
+
+[ "$DO_DMG" = 1 ] || { echo "== $APP ready (no .dmg asked for)"; exit 0; }
 
 echo "== dmg"
 STAGE="applebuild/dmg-stage"

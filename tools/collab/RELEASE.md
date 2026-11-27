@@ -10,41 +10,54 @@ update prompt for every user).
 - Tests green: `tools\collab\qa-auto\battery.ps1` (everything `SYNC: IDENTICAL` except the known
   `struct` with the local relay) and `tools\collab\qa-auto\net.ps1 -Only inject,fuzz`.
 
-## 1. Windows: built on GitHub Actions, from the public code
+## 1. All three platforms: built on GitHub Actions, from the public code
 
 1. `node tools/collab/publish-public.mjs -m "Ploq x.y.z: ..." --push` publishes the source to
-   specialith/ploq-app. That push runs the **Ploq release** workflow as a test build (no release).
-2. Wait for it to pass (Actions tab, about 1.5–2 hours).
+   specialith/ploq-app. That push runs the **Ploq release** workflow as a test build of Windows, macOS
+   and Linux (no signing, no release).
+2. Wait for it to pass (Actions tab, about 2–3 hours; the universal Mac build is the slowest).
 3. Tag that exact commit: `git fetch public && git push public <public/main sha>:refs/tags/vx.y.z`.
-   The tagged run repeats the build, attests both installers (`Ploq-x.y.z-Setup.exe`, Ploq's own
-   one-screen setup, and the `Ploq-x.y.z.msi` inside it) and creates the GitHub Release.
-4. Get and check it:
+   The tagged run repeats the builds. **The macos-sign job then waits for you**: open the run on GitHub
+   and approve the `mac-signing` environment (Review deployments). It signs with the Developer ID and
+   notarizes; the release job then attests every file and creates the GitHub Release with
+   `Ploq-x.y.z-Setup.exe`, `Ploq-x.y.z.msi`, `Ploq-x.y.z.dmg`, `Ploq-x.y.z-x86_64.AppImage`.
+4. Get and check them:
    ```
    gh release download vx.y.z -R specialith/ploq-app
    sha256sum -c SHA256SUMS.txt
-   gh attestation verify Ploq-x.y.z.msi -R specialith/ploq-app
-   gh attestation verify Ploq-x.y.z-Setup.exe -R specialith/ploq-app
+   for f in Ploq-x.y.z*; do gh attestation verify "$f" -R specialith/ploq-app; done
    ```
 
-## 2. macOS: built, signed and notarized on the MacBook (`ssh ploq-mac`)
+The Mac signing secrets (Developer ID certificate as a .p12, its password, the App Store Connect API key
+and its ID and issuer) live only in the `mac-signing` environment of specialith/ploq-app: required
+reviewer specialith, usable from `main` and `v*` tags only. To replace the certificate, rebuild the .p12
+on the MacBook from `~/.ploq/devid.key` + `devid.pem` + Apple's intermediate and update `MAC_CERT_P12` and
+`MAC_CERT_PASSWORD` there (`gh secret set ... --env mac-signing`).
 
+## 2. Fallback: building on the MacBook or in WSL
+
+If GitHub can't build, the same scripts work locally (no attestation then).
+
+macOS (`ssh ploq-mac`):
 ```
 cd ~/ploq && git fetch origin && git checkout -B main origin/main
 ARCHS="arm64;x86_64" bash tools/collab/macos/build.sh      # universal; starts from a clean Ploq.app
 bash tools/collab/macos/package.sh                          # macdeployqt, sign, notarize, staple -> applebuild/Ploq-x.y.z.dmg
 ```
 package.sh refuses to continue if anything in the app still links to the build machine's files, and
-ends with `spctl ... source=Notarized Developer ID` for both the app and the .dmg. Copy it to the PC:
-`scp ploq-mac:ploq/applebuild/Ploq-x.y.z.dmg .`
+ends with `spctl ... source=Notarized Developer ID` for both the app and the .dmg.
 
-## 3. Linux: AppImage built in WSL (distro `PloqBuild`)
-
+Linux (WSL distro `PloqBuild`):
 ```
 cd /root/ploq && git checkout --detach && git fetch -f /mnt/c/ms main:release-main && git checkout release-main
 nice -n 19 bash tools/collab/linux/build_appimage.sh        # -> build-appimage/Ploq-x.y.z-x86_64.AppImage
 ```
 (From Git Bash on Windows, prefix `wsl` commands that use /mnt/c paths with `MSYS_NO_PATHCONV=1`.)
 Smoke test: `MU_QT_QPA_PLATFORM=offscreen ./Ploq-x.y.z-x86_64.AppImage --appimage-extract-and-run` stays up.
+
+## 3. Windows setup app built locally (only if a release lacks it)
+
+`powershell -File tools\collab\installer\setup\build_setup.ps1 -Msi Ploq-x.y.z.msi`
 
 ## 4. One signed feed, then upload
 
@@ -65,7 +78,8 @@ Check each file downloads from `https://collab.ploq.app/updates/files/<name>` wi
 ## 5. Website and server
 
 - ploq.app/download offers each platform's file as soon as the signed feed lists it (it checks the feed's
-  signature itself). On Windows it offers the Setup.exe when the feed lists one, else the .msi. Site copy that names platforms (home button, JSON-LD, llms.txt): ploq-web.
+  signature itself). On Windows it offers the Setup.exe when the feed lists one, else the .msi.
+  Site copy that names platforms (home button, JSON-LD, llms.txt): ploq-web.
 - Public server code: `node scripts/publish-public.mjs -m "..." --push` in C:\ploq-server.
 - Keep the debug symbols: Windows from the workflow's `windows-symbols` artifact, macOS dSYMs are not
-  kept yet, Linux from the WSL build folder.
+  kept yet, the Linux AppImage is stripped.
