@@ -1,10 +1,11 @@
 // Ploq - make the signed update description (latest.json) for a release.
 //
-//   node tools/collab/installer/make_release.mjs Ploq-1.0.8.msi [Ploq-1.0.8.dmg] [Ploq-1.0.8-x86_64.AppImage]
+//   node tools/collab/installer/make_release.mjs Ploq-1.0.8.msi [Ploq-1.0.8-Setup.exe] [Ploq-1.0.8.dmg] [Ploq-1.0.8-x86_64.AppImage]
 //        [--base URL] [--notes "text"]
 //
-// The Windows installer is required and is listed first; the macOS .dmg and Linux AppImage are
-// optional and must have the same version. Writes builds/installer/release/latest.json next to
+// The Windows installer is required and is listed first; the Windows setup app (setup/build_setup.ps1:
+// what ploq.app/download hands out on Windows), the macOS .dmg and the Linux AppImage are optional and
+// must have the same version. Writes builds/installer/release/latest.json next to
 // copies of the files. Upload them all, the installers first and latest.json last:
 //   see tools/collab/installer/README.md ("Publishing an update").
 //
@@ -27,7 +28,7 @@ const opt = (name, dflt) => {
     return i >= 0 ? args[i + 1] : dflt;
 };
 const files = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"));
-const usage = 'usage: node make_release.mjs <Ploq-x.y.z.msi> [Ploq-x.y.z.dmg] [Ploq-x.y.z-x86_64.AppImage] [--base URL] [--notes "text"]';
+const usage = 'usage: node make_release.mjs <Ploq-x.y.z.msi> [Ploq-x.y.z-Setup.exe] [Ploq-x.y.z.dmg] [Ploq-x.y.z-x86_64.AppImage] [--base URL] [--notes "text"]';
 if (files.length === 0) {
     console.error(usage);
     process.exit(2);
@@ -36,6 +37,7 @@ if (files.length === 0) {
 // Exact names only: the download page and the apps match on them.
 const SHAPES = [
     { kind: "Windows installer", re: /^Ploq-(\d+\.\d+\.\d+)\.msi$/ },
+    { kind: "Windows setup", re: /^Ploq-(\d+\.\d+\.\d+)-Setup\.exe$/ },
     { kind: "macOS disk image", re: /^Ploq-(\d+\.\d+\.\d+)\.dmg$/ },
     { kind: "Linux AppImage", re: /^Ploq-(\d+\.\d+\.\d+)-x86_64\.AppImage$/ },
 ];
@@ -51,7 +53,7 @@ if (!found.some((f) => f.shape === 0)) {
     throw new Error("the Windows installer (Ploq-x.y.z.msi) is required: Windows copies update from this feed");
 }
 if (new Set(found.map((f) => f.shape)).size !== found.length) {
-    throw new Error("one file per platform");
+    throw new Error("one file of each kind");
 }
 const version = found[0].version;
 if (found.some((f) => f.version !== version)) {

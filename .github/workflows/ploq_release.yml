@@ -117,9 +117,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "build_installer.ps1 failed ($LASTEXITCODE)" }
           $msi = "builds\installer\Ploq-$env:PLOQ_VERSION.msi"
           if (-not (Test-Path $msi)) { throw "$msi was not built" }
-          $sha = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
-          # LF line ending: `sha256sum -c` (Linux, macOS, Git Bash) rejects CRLF lines.
-          [IO.File]::WriteAllText("$PWD\builds\installer\SHA256SUMS.txt", "$sha  Ploq-$env:PLOQ_VERSION.msi`n")
+          # Ploq's own one-screen setup (what ploq.app/download hands out on Windows), carrying that .msi.
+          powershell -ExecutionPolicy Bypass -File tools\collab\installer\setup\build_setup.ps1 -Msi $msi
+          if ($LASTEXITCODE -ne 0) { throw "build_setup.ps1 failed ($LASTEXITCODE)" }
+          $setup = "builds\installer\Ploq-$env:PLOQ_VERSION-Setup.exe"
+          if (-not (Test-Path $setup)) { throw "$setup was not built" }
+          # LF line endings: `sha256sum -c` (Linux, macOS, Git Bash) rejects CRLF lines.
+          $sums = ""
+          foreach ($f in $msi, $setup) {
+              $sums += (Get-FileHash $f -Algorithm SHA256).Hash.ToLower() + "  " + (Split-Path $f -Leaf) + "`n"
+          }
+          [IO.File]::WriteAllText("$PWD\builds\installer\SHA256SUMS.txt", $sums)
           Get-Content builds\installer\SHA256SUMS.txt
 
       - name: Keep the installer
@@ -128,6 +136,7 @@ jobs:
           name: windows-installer
           path: |
             builds/installer/Ploq-${{ env.PLOQ_VERSION }}.msi
+            builds/installer/Ploq-${{ env.PLOQ_VERSION }}-Setup.exe
             builds/installer/SHA256SUMS.txt
           retention-days: 30
 
@@ -159,11 +168,13 @@ jobs:
         working-directory: dist
         run: sha256sum -c SHA256SUMS.txt
 
-      - name: Attest the installer
+      - name: Attest the installers
         if: github.ref_type == 'tag' && github.event.repository.visibility == 'public'
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
-          subject-path: dist/Ploq-${{ env.PLOQ_VERSION }}.msi
+          subject-path: |
+            dist/Ploq-${{ env.PLOQ_VERSION }}.msi
+            dist/Ploq-${{ env.PLOQ_VERSION }}-Setup.exe
 
       - name: GitHub Release
         if: github.ref_type == 'tag'
@@ -174,9 +185,10 @@ jobs:
           v="$PLOQ_VERSION"
           notes="Ploq $v for Windows, built by GitHub Actions from commit $GITHUB_SHA of this repository ([build log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)).
 
-          Check that the installer came from this build:
+          Ploq-$v-Setup.exe is the installer to download. Ploq-$v.msi is the same install without the setup
+          screen (Ploq updates itself from it). Check that either one came from this build:
 
-              gh attestation verify Ploq-$v.msi -R $GITHUB_REPOSITORY
+              gh attestation verify Ploq-$v-Setup.exe -R $GITHUB_REPOSITORY
 
           SHA-256: see SHA256SUMS.txt. Download page: https://ploq.app/download"
-          gh release create "$GITHUB_REF_NAME" "dist/Ploq-$v.msi" dist/SHA256SUMS.txt --title "Ploq $v" --notes "$notes" --verify-tag
+          gh release create "$GITHUB_REF_NAME" "dist/Ploq-$v-Setup.exe" "dist/Ploq-$v.msi" dist/SHA256SUMS.txt --title "Ploq $v" --notes "$notes" --verify-tag
