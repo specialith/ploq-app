@@ -149,6 +149,8 @@ private:
 
     // Last write wins (replaced measure locks on 2026-11-25)
     int seenSeq() const;
+    bool checkSeq(int seq);
+    void onSeqGap(int from, int to);
     void onOwnEditAcked(int editId, int seq);
     void pruneOwnEdits();
     void notifyReplaced(const RemoteEdit& edit, const OwnEdit& mine);
@@ -245,6 +247,8 @@ private:
     std::deque<RemoteEdit> m_remoteQueue;
 
     bool m_caughtUp = false;           // this connection has everything the room had when we joined
+    int m_streamSeq = -1;              // last room edit number this connection saw, in order (-1: not known yet)
+    int m_gapResyncs = 0;              // full re-syncs this connection made for a missing edit
     std::vector<MeasureRange> m_outbox; // measures changed while we couldn't send (disjoint)
     bool m_outboxStructure = false;    // ...and the structure changed too: send the whole score
     QTimer m_flushTimer;

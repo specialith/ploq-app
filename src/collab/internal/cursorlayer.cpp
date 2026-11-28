@@ -45,6 +45,18 @@ static constexpr int CURSOR_BATCH_MS = 500;
 
 static constexpr double SAMPLE_MS = 33.0;          // path points recorded at most ~30 times a second
 static constexpr double MAX_BACKLOG_MS = 1.5 * CURSOR_BATCH_MS; // replay this far behind: skip ahead
+// What we take from another member's cursor or selection message (the server checks the same; these
+// hold for any server). We send about 16 points per batch, each timed within the batch.
+static constexpr int MAX_PATH_POINTS = 64;
+static constexpr double MAX_PATH_MS = 4 * CURSOR_BATCH_MS;
+static constexpr size_t MAX_QUEUED_POINTS = 256;   // per person: about 8 batches
+static constexpr double MAX_COORD = 1e6;           // page units; a page is a few thousand across
+static constexpr int MAX_REMOTE_OUTLINES = 300;
+
+static bool usableCoord(double v)
+{
+    return std::isfinite(v) && std::abs(v) <= MAX_COORD;
+}
 static constexpr double SNAP_DISTANCE_PX = 400.0;  // farther than this on screen: jump, don't glide
 static constexpr double SETTLE_DISTANCE_PX = 0.3;  // close enough: stop gliding
 static constexpr qint64 IDLE_FADE_AFTER_MS = 5000; // fade a cursor that hasn't moved for this long
@@ -166,14 +178,19 @@ void CursorLayer::onRemoteSelection(const QJsonObject& msg)
     Remote& r = m_remotes[id];
     updateIdentity(id, r, msg);
     r.selection.clear();
-    static constexpr int MAX_REMOTE_OUTLINES = 300;
     for (const QJsonValue& v : msg.value("outlines").toArray()) {
+        if (static_cast<int>(r.selection.size()) >= MAX_REMOTE_OUTLINES) {
+            break;
+        }
         const QJsonArray a = v.toArray();
-        if (a.size() != 5 || static_cast<int>(r.selection.size()) >= MAX_REMOTE_OUTLINES) {
+        if (a.size() != 5) {
             continue;
         }
-        r.selection.push_back({ a.at(0).toInt(-1), RectF(a.at(1).toDouble(), a.at(2).toDouble(),
-                                                         a.at(3).toDouble(), a.at(4).toDouble()) });
+        const double x = a.at(1).toDouble(), y = a.at(2).toDouble(), w = a.at(3).toDouble(), h = a.at(4).toDouble();
+        if (!usableCoord(x) || !usableCoord(y) || !usableCoord(w) || !usableCoord(h) || w < 0 || h < 0) {
+            continue;
+        }
+        r.selection.push_back({ a.at(0).toInt(-1), RectF(x, y, w, h) });
     }
     markAllDirty(); // selections change rarely; a full repaint is fine
 }
@@ -352,11 +369,16 @@ void CursorLayer::onRemoteCursor(const QJsonObject& msg)
     r.hideAfterQueue = false;
 
     const int page = msg.value("page").toInt(-1);
+    const double endX = msg.value("x").toDouble();
+    const double endY = msg.value("y").toDouble();
+    if (!usableCoord(endX) || !usableCoord(endY)) {
+        return;
+    }
     const QJsonArray path = msg.value("path").toArray();
-    if (path.size() < 3) {
-        // Older client: just the latest spot.
+    if (path.size() < 3 || path.size() > MAX_PATH_POINTS * 3) {
+        // Older client (or a path no app sends): just the latest spot.
         r.queue.clear();
-        moveRemoteTo(r, page, PointF(msg.value("x").toDouble(), msg.value("y").toDouble()));
+        moveRemoteTo(r, page, PointF(endX, endY));
         return;
     }
 
@@ -372,10 +394,23 @@ void CursorLayer::onRemoteCursor(const QJsonObject& msg)
         }
         base = now;
     }
+    double last = 0.0;
     for (int i = 0; i + 2 < path.size(); i += 3) {
-        const double at = base + path.at(i + 2).toDouble();
-        r.queue.push_back({ page, PointF(path.at(i).toDouble(), path.at(i + 1).toDouble()), at });
+        const double x = path.at(i).toDouble();
+        const double y = path.at(i + 1).toDouble();
+        // Times in order and within the batch: one far ahead would hold everything behind it in the queue.
+        const double offset = path.at(i + 2).toDouble();
+        if (!usableCoord(x) || !usableCoord(y) || !std::isfinite(offset)) {
+            continue;
+        }
+        last = std::clamp(offset, last, MAX_PATH_MS);
+        const double at = base + last;
+        r.queue.push_back({ page, PointF(x, y), at });
         r.queueEnd = at;
+    }
+    while (r.queue.size() > MAX_QUEUED_POINTS) {
+        moveRemoteTo(r, r.queue.front().page, r.queue.front().pos);
+        r.queue.pop_front();
     }
     playDue(r, now);
     startAnimation();

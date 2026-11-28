@@ -18,9 +18,9 @@ Servers:
 | `edit` | client → server | an edit, undo or redo finishes | `editId`, `tickFrom`, `tickTo`, `staffFrom`, `staffTo`, `xml`, `sentAtMs`, `structSeq`, `baseSeq` |
 | `edit` | server → others | forwarded | same + `seq` (server order), `from` (client id), `name` |
 | `ack` | server → sender | edit accepted | `seq`, `editId` |
-| `cursor` | client → others (relayed) | mouse moves (≤ ~120/s) | `page`, `x`, `y` (page-relative score units), `color`; or `hidden` |
-| `selection` | client → others | selection changes | `outlines: [[page, x, y, w, h], …]`, `color` |
-| `edit-rejected` | server → sender | 2000 edits stored without a fresh snapshot | `editId`, `reason` |
+| `cursor` | client → others (relayed) | batched, about twice a second | `page`, `x`, `y` (page-relative score units), `color`, `path: [x, y, ms, …]` (≤ 64 points, times in order, ≤ 2 s); or `hidden` |
+| `selection` | client → others | selection changes | `outlines: [[page, x, y, w, h], …]` (≤ 300), `color` |
+| `edit-rejected` | server → sender | `slow down` (rate limit: send again), `too big` (over 1.8 million characters stored: send the whole score as `structure`), or too many edits stored without a fresh snapshot | `editId`, `reason` |
 | `snapshot-put` | client → server | joining an empty room; when asked | `baseSeq`, `title`, `data` (base64 .mscz) |
 | `snapshot-saved` / `snapshot-refused` | server → sender | reply | `baseSeq` |
 | `snapshot-request` | server → a client | edit log ≥ 300 since the snapshot | — |
@@ -29,6 +29,12 @@ Servers:
 | `synced` / `no-snapshot` | server → client | end of a `sync` | `seq` |
 
 `welcome` from the Cloudflare server also carries `snapshot: {exists, baseSeq, title}`.
+
+Every `seq` the server hands out is kept in its log until a saved score contains it, and a
+connection sees each one once, in order (as an `edit`, or as the `ack` of its own `edit` or
+`structure`). A `sync` answer comes as one piece, with nothing else in between. So an app that
+sees a number skipped, or `synced` with a `seq` it hasn't had, has missed an edit for good: it
+downloads the room's score again (`sync` with `sinceSeq: -1`), once per connection.
 
 Until 2026-11-25 there were measure locks (`lock`, `locks`, `lock-denied`, and `edit-rejected` with
 `by`). Servers now ignore `lock` from older apps and never send the others.
@@ -81,5 +87,7 @@ The receiver swaps the measures in with `Score::pasteStaff()` as **one undo step
 The Cloudflare server passes on **only** `cursor` and `selection` from one client to the others.
 Every other message type a client sends is either handled by the server (`join`, `edit`,
 `structure`, `snapshot-put`, `sync`) or dropped, so members can't forge server messages such as
-`snapshot`, `welcome` or `presence`. Edits are refused (`edit-rejected`) only when 2000 edits are
-stored without a fresh snapshot.
+`snapshot`, `welcome` or `presence`. `cursor` and `selection` go on with only the fields above,
+checked (anything else is left out). Edits are refused (`edit-rejected`) when the sender floods
+(`slow down`), when one is too big to keep (`too big`), or when 2000 edits are stored without a
+fresh snapshot.

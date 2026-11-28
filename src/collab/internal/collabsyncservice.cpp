@@ -42,6 +42,8 @@
 #include "notation/inotationinteraction.h"
 #include "project/inotationproject.h"
 #include "ui/view/iconcodes.h"
+#include "global/io/buffer.h"
+#include "global/serialization/zipreader.h"
 
 #include "log.h"
 
@@ -783,6 +785,8 @@ void CollabSyncService::onConnected()
     m_connected = true;
     m_welcomedThisConnection = false;
     m_caughtUp = false; // until the welcome (local relay) or "synced" (server)
+    m_streamSeq = -1;   // known again once we ask to catch up (onWelcomeSync)
+    m_gapResyncs = 0;
     QJsonObject join {
         { "type", "join" },
         { "name", m_name },
@@ -800,6 +804,9 @@ void CollabSyncService::onTextMessage(const QString& text)
     const QString type = msg.value("type").toString();
 
     if (type == "edit") {
+        if (!checkSeq(msg.value("seq").toInt())) {
+            return; // an earlier edit never came: starting again from the room's score, which has this one
+        }
         // When catching up after a reconnect, the server replays edits that
         // include our own: we already have those.
         if (m_myClientIds.count(msg.value("from").toInt(-1))) {
@@ -872,12 +879,24 @@ void CollabSyncService::onTextMessage(const QString& text)
             m_remoteQueue.erase(std::remove_if(m_remoteQueue.begin(), m_remoteQueue.end(),
                                                [baseSeq](const RemoteEdit& e) { return e.seq <= baseSeq; }),
                                 m_remoteQueue.end());
+            // The whole score as of edit #baseSeq: whatever came before it, nothing is missing.
+            if (m_streamSeq >= 0) {
+                m_streamSeq = std::max(m_streamSeq, baseSeq);
+            }
             m_waitingForRoomScore = true;
             LOGI() << "collab: " << CollabAccount::cleanText(msg.value("name").toString(), 40) << " changed the score's structure; reloading it";
             if (toastService()) {
                 showToast(ToastKind::Info, "Score updated", (CollabAccount::cleanText(msg.value("name").toString(), 40)
                                                              + " changed instruments, measures or signatures. Reloaded.").toStdString());
             }
+        } else {
+            // Catching up from scratch: the room's score as of edit #baseSeq, then the edits after it.
+            // Queued edits up to it are inside it; applied on top they could undo later ones.
+            const int baseSeq = msg.value("baseSeq").toInt();
+            m_remoteQueue.erase(std::remove_if(m_remoteQueue.begin(), m_remoteQueue.end(),
+                                               [baseSeq](const RemoteEdit& e) { return e.seq <= baseSeq; }),
+                                m_remoteQueue.end());
+            m_streamSeq = baseSeq;
         }
         openRoomScore(msg);
     } else if (type == "no-snapshot") {
@@ -888,9 +907,20 @@ void CollabSyncService::onTextMessage(const QString& text)
         m_outbox.clear(); // the score we upload already has them
         m_outboxStructure = false;
         m_lastSeq = msg.value("seq").toInt();
+        m_streamSeq = m_lastSeq;
         uploadSnapshot(m_lastSeq);
         startQaScriptOnce();
     } else if (type == "synced") {
+        // The room is at edit #seq: one we haven't had by now never arrived.
+        const int roomSeq = msg.value("seq").toInt();
+        if (m_serverKeepsScores && m_streamSeq >= 0 && roomSeq > m_streamSeq) {
+            const bool resyncing = m_gapResyncs == 0;
+            onSeqGap(m_streamSeq + 1, roomSeq);
+            if (resyncing) {
+                return; // a "synced" follows the score that comes back
+            }
+            m_streamSeq = roomSeq;
+        }
         m_synced = true;
         m_caughtUp = true;
         LOGI() << "collab: caught up with the room (edit #" << msg.value("seq").toInt() << ")";
@@ -900,6 +930,7 @@ void CollabSyncService::onTextMessage(const QString& text)
         // The server's edit log is getting long: give it a fresh full score.
         uploadSnapshot(m_remoteQueue.empty() ? m_lastSeq : std::min(m_lastSeq, m_remoteQueue.front().seq - 1));
     } else if (type == "ack") {
+        checkSeq(msg.value("seq").toInt()); // our own edit still counts as acknowledged if it finds a gap
         m_lastSeq = std::max(m_lastSeq, msg.value("seq").toInt());
         onOwnEditAcked(msg.value("editId").toInt(-1), msg.value("seq").toInt());
         if (m_structureEditId >= 0 && msg.value("editId").toInt(-1) == m_structureEditId) {
@@ -947,6 +978,10 @@ void CollabSyncService::onTextMessage(const QString& text)
                     break;
                 }
             }
+        } else if (msg.value("reason").toString() == "too big") {
+            // Too big for the server's edit log (sendMeasureEdit avoids this; a peer's limit could be lower):
+            // the whole score carries it instead, so the others don't miss it.
+            sendStructureChange();
         }
         m_ownEdits.erase(std::remove_if(m_ownEdits.begin(), m_ownEdits.end(),
                                         [editId](const OwnEdit& e) { return e.editId == editId; }),
@@ -985,6 +1020,7 @@ void CollabSyncService::onWelcomeSync(const QJsonObject& welcome)
 
     if (m_synced) {
         // Reconnecting: only what we missed.
+        m_streamSeq = m_lastSeq;
         sendJson(QJsonObject { { "type", "sync" }, { "sinceSeq", m_lastSeq } });
     } else if (m_roomHasSnapshot) {
         // Joining a room that already has a score: get it, then the edits since.
@@ -998,8 +1034,45 @@ void CollabSyncService::onWelcomeSync(const QJsonObject& welcome)
         m_outbox.clear();
         m_outboxStructure = false;
         m_lastSeq = roomSeq;
+        m_streamSeq = roomSeq;
         uploadSnapshot(roomSeq);
     }
+}
+
+//! The server numbers every edit it keeps (and every structural change) one after another, and a
+//! connection sees each number once, in order: as an edit, or as the ack of its own. A number
+//! skipped is an edit we will never get. Returns false when it started a full re-sync for that.
+bool CollabSyncService::checkSeq(int seq)
+{
+    if (!m_serverKeepsScores || m_streamSeq < 0 || seq <= m_streamSeq) {
+        return true; // local relay (no log), not caught up yet, or replayed again
+    }
+    if (seq == m_streamSeq + 1) {
+        m_streamSeq = seq;
+        return true;
+    }
+    const bool resyncing = m_gapResyncs == 0;
+    onSeqGap(m_streamSeq + 1, seq - 1);
+    if (!resyncing) {
+        m_streamSeq = seq; // gave up re-syncing on this connection: keep watching from here
+    }
+    return !resyncing;
+}
+
+//! Edits #from..#to never arrived (a server from before 2026-11-27 numbered edits it then didn't keep).
+//! Start again from the room's saved score, once per connection, so a server that keeps doing it
+//! can't make us reload forever.
+void CollabSyncService::onSeqGap(int from, int to)
+{
+    LOGW() << "collab: room edits #" << from << "-#" << to << " never arrived";
+    if (m_gapResyncs++ > 0) {
+        return;
+    }
+    LOGI() << "collab: downloading the room's score again so ours matches everyone's";
+    m_streamSeq = -1; // known again from the score that comes back
+    m_caughtUp = false; // our changes wait in the outbox until then
+    m_waitingForRoomScore = true;
+    sendJson(QJsonObject { { "type", "sync" }, { "sinceSeq", -1 } });
 }
 
 void CollabSyncService::uploadSnapshot(int baseSeq)
@@ -1060,6 +1133,35 @@ void CollabSyncService::sendStructureChange()
            << (m_masterNotation ? m_masterNotation->masterScore()->nmeasures() : 0) << " measures)";
 }
 
+//! A score from the room (another member's upload) opens without asking: look inside it first.
+//! Returns why it won't be opened, or an empty string. The zip reader also stops any entry that
+//! expands past its limits while the score opens, whatever the entry claims here.
+static QString roomScoreProblem(const QByteArray& mscz)
+{
+    static constexpr size_t MAX_ENTRIES = 1000;                       // a score has a handful
+    static constexpr uint64_t MAX_ENTRY_BYTES = 256ULL * 1024 * 1024;   // as in the zip reader
+    static constexpr uint64_t MAX_TOTAL_BYTES = 512ULL * 1024 * 1024;
+    muse::io::Buffer buffer(reinterpret_cast<const uint8_t*>(mscz.constData()), static_cast<size_t>(mscz.size()));
+    muse::ZipReader zip(&buffer);
+    const std::vector<muse::ZipReader::FileInfo> files = zip.fileInfoList();
+    if (files.empty() || files.size() > MAX_ENTRIES) {
+        return QString("%1 files inside").arg(files.size());
+    }
+    uint64_t total = 0;
+    bool hasScore = false;
+    for (const muse::ZipReader::FileInfo& f : files) {
+        if (f.size > MAX_ENTRY_BYTES) {
+            return f.filePath.toQString() + " too big";
+        }
+        total += f.size;
+        hasScore = hasScore || (!f.isDir && f.filePath.toQString().endsWith(".mscx", Qt::CaseInsensitive));
+    }
+    if (total > MAX_TOTAL_BYTES) {
+        return "too big when unpacked";
+    }
+    return hasScore ? QString() : QString("no score inside");
+}
+
 static QString safeFileNamePart(const QString& s)
 {
     QString out;
@@ -1076,6 +1178,13 @@ void CollabSyncService::openRoomScore(const QJsonObject& msg)
     if (mscz.isEmpty() || mscz.size() > MAX_SCORE_BYTES || !mscz.startsWith("PK")) {
         LOGW() << "collab: room score missing or not an .mscz file";
         m_waitingForRoomScore = false;
+        return;
+    }
+    if (const QString problem = roomScoreProblem(mscz); !problem.isEmpty()) {
+        LOGW() << "collab: not opening the room's score: " << problem;
+        m_waitingForRoomScore = false;
+        showToast(ToastKind::Warning, "Score not opened",
+                  "The shared score from this room doesn't look like a MuseScore file, so it wasn't opened.");
         return;
     }
 
@@ -1416,8 +1525,18 @@ bool CollabSyncService::sendMeasureEdit(Score* score, const MeasureRange& range)
         { "baseSeq", seenSeq() }, // lets whoever we overwrite tell that we hadn't seen theirs
         { "xml", QString::fromUtf8(xml) },
     };
+    const QString text = QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact));
+    // The server keeps each edit in one storage value (under 1.8 million characters, with what it adds)
+    // and refuses bigger ones. A change this big goes as the whole score instead.
+    static constexpr qsizetype MAX_EDIT_CHARS = 1'700'000;
+    if (m_serverKeepsScores && text.size() > MAX_EDIT_CHARS) {
+        LOGI() << "collab: measures " << range.tickFrom << "-" << range.tickTo << " too big for one edit ("
+               << text.size() << " chars); sending the whole score";
+        sendStructureChange();
+        return true;
+    }
     m_ownEdits.push_back(OwnEdit { msg.value("editId").toInt(), -1, range, xml, 0 });
-    m_socket->sendTextMessage(QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact)));
+    m_socket->sendTextMessage(text);
     return true;
 }
 

@@ -110,45 +110,6 @@ static void writeMSDosDate(uint8_t* dest, const std::tm& dt)
     }
 }
 
-static int inflate(Bytef* dest, ulong* destLen, const Bytef* source, ulong sourceLen)
-{
-    z_stream stream;
-    int err;
-
-    stream.next_in = const_cast<Bytef*>(source);
-    stream.avail_in = (uInt)sourceLen;
-    if ((uLong)stream.avail_in != sourceLen) {
-        return Z_BUF_ERROR;
-    }
-
-    stream.next_out = dest;
-    stream.avail_out = (uInt) * destLen;
-    if ((uLong)stream.avail_out != *destLen) {
-        return Z_BUF_ERROR;
-    }
-
-    stream.zalloc = (alloc_func)0;
-    stream.zfree = (free_func)0;
-
-    err = inflateInit2(&stream, -MAX_WBITS);
-    if (err != Z_OK) {
-        return err;
-    }
-
-    err = inflate(&stream, Z_FINISH);
-    if (err != Z_STREAM_END) {
-        inflateEnd(&stream);
-        if (err == Z_NEED_DICT || (err == Z_BUF_ERROR && stream.avail_in == 0)) {
-            return Z_DATA_ERROR;
-        }
-        return err;
-    }
-    *destLen = stream.total_out;
-
-    err = inflateEnd(&stream);
-    return err;
-}
-
 static int deflate(Bytef* dest, ulong* destLen, const Bytef* source, ulong sourceLen)
 {
     z_stream stream;
@@ -369,8 +330,16 @@ LocalFileHeader CentralFileHeader::toLocalHeader() const
     return h;
 }
 
+// Limits for extracting entries from zip files people send (a shared score can be crafted to expand
+// enormously). Far above any real score: a big orchestral score.mscx is tens of megabytes.
+static constexpr size_t MAX_ENTRY_BYTES = 256 * 1024 * 1024;   // one entry
+static constexpr size_t MAX_TOTAL_BYTES = 512 * 1024 * 1024;   // everything extracted from one zip
+static constexpr uint64_t MAX_RATIO = 300;                       // expanded : compressed...
+static constexpr uint64_t RATIO_FREE_BYTES = 32 * 1024 * 1024;  // ...checked for entries bigger than this
+
 struct ZipContainer::Impl {
     IODevice* device = nullptr;
+    size_t extractedBytes = 0;   // by fileData(), counted against MAX_TOTAL_BYTES
 
     bool dirtyFileTree = true;
     std::vector<FileHeader> fileHeaders;
@@ -770,10 +739,26 @@ ByteArray ZipContainer::fileData(const std::string& fileName) const
     }
 
     ushort general_purpose_bits = readUShort(header.h.general_purpose_bits);
-    int compressed_size = readUInt(header.h.compressed_size);
-    int uncompressed_size = readUInt(header.h.uncompressed_size);
-    int start = readUInt(header.h.offset_local_header);
+    const uint compressed_size = readUInt(header.h.compressed_size);
+    const uint uncompressed_size = readUInt(header.h.uncompressed_size);
+    const uint start = readUInt(header.h.offset_local_header);
 
+    if ((general_purpose_bits & Encrypted) != 0) {
+        LOGW("Zip: Unsupported encryption method is needed to extract the data.");
+        return ByteArray();
+    }
+    // Zip files come from other people (shared scores, downloads): what an entry says it expands to
+    // is only a claim. Refuse entries over the limits before reading anything.
+    if (uncompressed_size > MAX_ENTRY_BYTES || p->extractedBytes + uncompressed_size > MAX_TOTAL_BYTES) {
+        LOGW("Zip: %s is too big to extract (%u bytes)", fileName.c_str(), uncompressed_size);
+        return ByteArray();
+    }
+
+    const int64_t deviceSize = (int64_t)p->device->size();
+    if ((int64_t)start + (int64_t)sizeof(LocalFileHeader) > deviceSize) {
+        LOGW("Zip: entry %s starts past the end of the file", fileName.c_str());
+        return ByteArray();
+    }
     p->device->seek(start);
     LocalFileHeader lh;
     p->device->read((uint8_t*)&lh, sizeof(LocalFileHeader));
@@ -782,45 +767,70 @@ ByteArray ZipContainer::fileData(const std::string& fileName) const
 
     int compression_method = readUShort(lh.compression_method);
 
-    if ((general_purpose_bits & Encrypted) != 0) {
-        LOGW("Zip: Unsupported encryption method is needed to extract the data.");
+    if ((int64_t)p->device->pos() + (int64_t)compressed_size > deviceSize) {
+        LOGW("Zip: entry %s runs past the end of the file", fileName.c_str());
+        return ByteArray();
+    }
+    ByteArray compressed = p->device->read(compressed_size);
+    if (compressed.size() != compressed_size) {
+        LOGW("Zip: could not read entry %s", fileName.c_str());
         return ByteArray();
     }
 
-    ByteArray compressed = p->device->read(compressed_size);
     if (compression_method == CompressionMethodStored) {
         // no compression
         compressed.truncate(uncompressed_size);
+        p->extractedBytes += compressed.size();
         return compressed;
     } else if (compression_method == CompressionMethodDeflated) {
-        // Deflate
-        //qDebug("compressed=%d", compressed.size());
-        compressed.truncate(compressed_size);
-        ByteArray baunzip;
-        ulong len = std::max(uncompressed_size,  1);
-        int res;
-        do {
-            baunzip.resize(len);
-            res = inflate((uint8_t*)baunzip.data(), &len,
-                          (const uint8_t*)compressed.constData(), compressed_size);
+        // Deflate, streamed into a buffer that grows with what actually comes out (never sized from
+        // the claimed size alone), up to the entry limit and a compression-ratio limit.
+        size_t cap = std::min<size_t>(MAX_ENTRY_BYTES, MAX_TOTAL_BYTES - p->extractedBytes);
+        if ((uint64_t)compressed.size() * MAX_RATIO > RATIO_FREE_BYTES) {
+            cap = std::min<size_t>(cap, std::max<uint64_t>(RATIO_FREE_BYTES, (uint64_t)compressed.size() * MAX_RATIO));
+        } else {
+            cap = std::min<size_t>(cap, RATIO_FREE_BYTES);
+        }
+        z_stream stream;
+        std::memset(&stream, 0, sizeof(stream));
+        if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) {
+            return ByteArray();
+        }
+        stream.next_in = const_cast<Bytef*>(reinterpret_cast<const Bytef*>(compressed.constData()));
+        stream.avail_in = (uInt)compressed.size();
 
-            switch (res) {
-            case Z_OK:
-                if ((size_t)len != baunzip.size()) {
-                    baunzip.resize(len);
+        ByteArray baunzip;
+        size_t capacity = std::min<size_t>(cap, std::max<size_t>(std::min<size_t>(uncompressed_size, cap), 64 * 1024));
+        baunzip.resize(capacity);
+        int res = Z_OK;
+        while (res == Z_OK) {
+            if (stream.total_out == capacity) {
+                if (capacity >= cap) {
+                    LOGW("Zip: %s expands beyond the limit (%zu bytes), not extracted", fileName.c_str(), cap);
+                    inflateEnd(&stream);
+                    return ByteArray();
                 }
-                break;
-            case Z_MEM_ERROR:
-                LOGW("Zip: Z_MEM_ERROR: Not enough memory");
-                break;
-            case Z_BUF_ERROR:
-                len *= 2;
-                break;
-            case Z_DATA_ERROR:
-                LOGW("Zip: Z_DATA_ERROR: Input data is corrupted");
-                break;
+                capacity = std::min<size_t>(cap, capacity * 2);
+                baunzip.resize(capacity);
             }
-        } while (res == Z_BUF_ERROR);
+            stream.next_out = reinterpret_cast<Bytef*>(baunzip.data()) + stream.total_out;
+            stream.avail_out = (uInt)(capacity - stream.total_out);
+            res = ::inflate(&stream, Z_NO_FLUSH);
+            if (res == Z_BUF_ERROR && stream.avail_out > 0) {
+                break; // input ended before the stream did
+            }
+            if (res == Z_BUF_ERROR) {
+                res = Z_OK; // output full: grow and carry on
+            }
+        }
+        const size_t produced = stream.total_out;
+        inflateEnd(&stream);
+        if (res != Z_STREAM_END) {
+            LOGW("Zip: %s: compressed data is corrupted (%d)", fileName.c_str(), res);
+            return ByteArray();
+        }
+        baunzip.resize(produced);
+        p->extractedBytes += produced;
         return baunzip;
     }
 
